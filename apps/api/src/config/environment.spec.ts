@@ -6,6 +6,7 @@ describe("validateEnvironment", () => {
     const result = validateEnvironment({
       DATABASE_URL: "postgresql://user:password@127.0.0.1:5432/cppstudy",
     });
+    expect(result.API_HOST).toBe("127.0.0.1");
     expect(result.API_PORT).toBe(3001);
     expect(result.WEB_ORIGIN).toBe("http://127.0.0.1:3000");
     expect(result.SESSION_IDLE_TTL_SECONDS).toBe(86400);

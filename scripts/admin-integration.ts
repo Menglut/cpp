@@ -20,8 +20,10 @@ const email = `admin-integration-${suffix}@example.test`;
 const password = `T3st-${randomBytes(18).toString("base64url")}!`;
 let userId: string | undefined;
 let lessonId: string | undefined;
+let lessonCategoryId: string | undefined;
 let problemId: string | undefined;
 let validationId: string | undefined;
+let assetId: string | undefined;
 
 async function api<T>(
   path: string,
@@ -30,7 +32,8 @@ async function api<T>(
 ): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("origin", origin);
-  if (init.body) headers.set("content-type", "application/json");
+  if (init.body && !(init.body instanceof FormData))
+    headers.set("content-type", "application/json");
   const csrf = cookies.get("cppstudy_csrf");
   if (csrf && !["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase())) {
     headers.set("x-csrf-token", decodeURIComponent(csrf));
@@ -73,16 +76,65 @@ async function main() {
     lessons: Array<{ id: string }>;
     problems: Array<{ id: string }>;
     categories: Array<{ id: string }>;
+    lessonCategories: Array<{ id: string }>;
   }>("/admin/content");
+  if (!content.lessonCategories[0])
+    throw new Error("학습 카테고리가 없습니다.");
   process.stdout.write(
     `✓ 관리자 콘텐츠 조회 (${content.lessons.length}개 강의, ${content.problems.length}개 문제)\n`,
   );
+
+  const lessonCategory = await api<{ id: string }>(
+    "/admin/lesson-categories",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        slug: `integration-category-${suffix}`,
+        title: "통합 테스트 카테고리",
+        summary: "테스트 후 자동 삭제되는 카테고리입니다.",
+        order: 9999,
+      }),
+    },
+    201,
+  );
+  lessonCategoryId = lessonCategory.id;
+  await api(
+    `/admin/lesson-categories/${lessonCategoryId}/publish`,
+    { method: "POST" },
+    201,
+  );
+  const catalog = await api<{ categories: Array<{ id: string }> }>("/lessons");
+  if (!catalog.categories.some((item) => item.id === lessonCategoryId))
+    throw new Error("공개 학습 카테고리가 목록에 없습니다.");
+  process.stdout.write("✓ 학습 카테고리 생성 및 공개\n");
+
+  const image = new FormData();
+  image.append("altText", "통합 테스트 이미지");
+  image.append(
+    "file",
+    new Blob([Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10])], {
+      type: "image/png",
+    }),
+    "integration.png",
+  );
+  const asset = await api<{ id: string; url: string }>(
+    "/admin/assets",
+    { method: "POST", body: image },
+    201,
+  );
+  assetId = asset.id;
+  await api(asset.url.replace("/api/v1", ""));
+  const assets = await api<{ items: Array<{ id: string }> }>("/admin/assets");
+  if (!assets.items.some((item) => item.id === assetId))
+    throw new Error("업로드한 이미지가 목록에 없습니다.");
+  process.stdout.write("✓ 이미지 업로드, 공개 조회 및 목록 조회\n");
 
   const lesson = await api<{ id: string }>(
     "/admin/lessons",
     {
       method: "POST",
       body: JSON.stringify({
+        categoryId: lessonCategoryId,
         slug: `integration-${suffix}`,
         title: "관리자 통합 테스트 강의",
         summary: "테스트 후 자동 삭제되는 강의입니다.",
@@ -94,7 +146,59 @@ async function main() {
   );
   lessonId = lesson.id;
   await api(`/admin/lessons/${lessonId}/publish`, { method: "POST" }, 201);
-  process.stdout.write("✓ 강의 생성 및 공개\n");
+  await api(`/admin/lessons/${lessonId}/versions`, { method: "POST" }, 201);
+  const updatedLesson = await api<{ id: string }>(
+    `/admin/lessons/${lessonId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        title: "관리자 통합 테스트 강의 v2",
+        summary: "버전 게시 테스트",
+        body: "# 새 버전 본문",
+        order: 9999,
+      }),
+    },
+  );
+  if (updatedLesson.id !== lessonId)
+    throw new Error("강의 수정 응답의 ID가 강의 ID와 일치하지 않습니다.");
+  await api(`/admin/lessons/${updatedLesson.id}/problems`, {
+    method: "PUT",
+    body: JSON.stringify({ problems: [] }),
+  });
+  const beforeLessonPublish = await api<{ body: string }>(
+    `/lessons/integration-${suffix}`,
+  );
+  if (beforeLessonPublish.body !== "# 관리자 통합 테스트")
+    throw new Error("초안 공개 전 기존 강의 버전이 유지되지 않았습니다.");
+  await api(`/admin/lessons/${lessonId}/publish`, { method: "POST" }, 201);
+  const afterLessonPublish = await api<{ body: string }>(
+    `/lessons/integration-${suffix}`,
+  );
+  if (afterLessonPublish.body !== "# 새 버전 본문")
+    throw new Error("새 강의 버전이 공개되지 않았습니다.");
+  const groupedCatalog = await api<{
+    categories: Array<{ id: string; lessons: Array<{ slug: string }> }>;
+  }>("/lessons");
+  const groupedCategory = groupedCatalog.categories.find(
+    (item) => item.id === lessonCategoryId,
+  );
+  if (
+    !groupedCategory?.lessons.some(
+      (item) => item.slug === `integration-${suffix}`,
+    )
+  )
+    throw new Error("강의가 학습 카테고리 아래에 표시되지 않습니다.");
+  process.stdout.write("✓ 강의 생성, 버전 격리 및 새 버전 공개\n");
+  await api(`/admin/lesson-categories/${lessonCategoryId}`, {
+    method: "DELETE",
+  });
+  await api(`/lessons/integration-${suffix}`, {}, 404);
+  await api(
+    `/admin/lesson-categories/${lessonCategoryId}/publish`,
+    { method: "POST" },
+    201,
+  );
+  process.stdout.write("✓ 카테고리 보관에 따른 공개 강의 숨김\n");
 
   const maximum = await prisma.problem.aggregate({ _max: { number: true } });
   const problemNumber = (maximum._max.number ?? 1000) + 1;
@@ -181,9 +285,13 @@ async function main() {
   await api(`/problems/${problemNumber}`, {}, 404);
   await api(`/admin/problems/${problemId}/restore`, { method: "POST" }, 201);
   process.stdout.write("✓ 문제 공개, 보관 및 복원\n");
+  await api(`/admin/assets/${assetId}`, { method: "DELETE" });
+  assetId = undefined;
+  process.stdout.write("✓ 이미지 삭제\n");
 }
 
 async function cleanup() {
+  if (assetId) await prisma.contentAsset.deleteMany({ where: { id: assetId } });
   if (userId) await prisma.auditLog.deleteMany({ where: { actorId: userId } });
   if (validationId)
     await prisma.outboxEvent.deleteMany({
@@ -191,6 +299,8 @@ async function cleanup() {
     });
   if (problemId) await prisma.problem.deleteMany({ where: { id: problemId } });
   if (lessonId) await prisma.lesson.deleteMany({ where: { id: lessonId } });
+  if (lessonCategoryId)
+    await prisma.lessonCategory.deleteMany({ where: { id: lessonCategoryId } });
   if (userId) await prisma.user.deleteMany({ where: { id: userId } });
   await prisma.$disconnect();
 }

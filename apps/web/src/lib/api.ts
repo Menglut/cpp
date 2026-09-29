@@ -11,6 +11,16 @@ export type LessonSummary = {
   title: string;
   summary: string;
   order: number;
+  category: { id: string; slug: string; title: string; order: number };
+};
+
+export type LessonCategory = {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  order: number;
+  lessons: LessonSummary[];
 };
 
 export type LessonDetail = LessonSummary & {
@@ -121,11 +131,14 @@ export type ValidationStatus =
 export type AdminContent = {
   lessons: Array<{
     id: string;
+    categoryId: string;
     slug: string;
     title: string;
     status: ContentStatus;
     order: number;
     updatedAt: string;
+    editableVersionId: string | null;
+    editableVersion: number | null;
   }>;
   problems: Array<{
     id: string;
@@ -139,10 +152,20 @@ export type AdminContent = {
     editableVersion: number | null;
   }>;
   categories: Array<{ id: string; slug: string; name: string }>;
+  lessonCategories: Array<{
+    id: string;
+    slug: string;
+    title: string;
+    summary: string;
+    order: number;
+    status: ContentStatus;
+    _count: { lessons: number };
+  }>;
 };
 
 export type AdminLesson = {
   id: string;
+  categoryId: string;
   slug: string;
   title: string;
   summary: string;
@@ -150,7 +173,27 @@ export type AdminLesson = {
   order: number;
   status: ContentStatus;
   publishedAt: string | null;
+  editable: boolean;
+  currentVersionId: string | null;
+  editableVersion: {
+    id: string;
+    version: number;
+    title: string;
+    summary: string;
+    body: string;
+    publishedAt: string | null;
+  } | null;
   problems: Array<{ problemId: string; order: number }>;
+};
+
+export type ContentAsset = {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  fileSize: number;
+  altText: string;
+  createdAt: string;
+  url: string;
 };
 
 export type AdminProblemVersion = {
@@ -253,7 +296,8 @@ async function request<T>(
 ): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
-  if (init.body) headers.set("content-type", "application/json");
+  if (init.body && !(init.body instanceof FormData))
+    headers.set("content-type", "application/json");
   if (withCsrf && !["GET", "HEAD", "OPTIONS"].includes(method)) {
     headers.set("x-csrf-token", await ensureCsrfToken());
   }
@@ -314,6 +358,12 @@ export function logout() {
 
 export async function listLessons() {
   return (await request<{ items: LessonSummary[] }>("/lessons")).items;
+}
+
+export function getLessonCatalog() {
+  return request<{ items: LessonSummary[]; categories: LessonCategory[] }>(
+    "/lessons",
+  );
 }
 
 export function getLesson(slug: string) {
@@ -403,6 +453,7 @@ export function getAdminProblem(id: string) {
 }
 
 export function createAdminLesson(input: {
+  categoryId: string;
   slug: string;
   title: string;
   summary: string;
@@ -415,6 +466,40 @@ export function createAdminLesson(input: {
   });
 }
 
+export type AdminLessonCategoryInput = {
+  slug: string;
+  title: string;
+  summary: string;
+  order: number;
+};
+
+export function createAdminLessonCategory(input: AdminLessonCategoryInput) {
+  return request<AdminContent["lessonCategories"][number]>(
+    "/admin/lesson-categories",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export function updateAdminLessonCategory(
+  id: string,
+  input: Omit<AdminLessonCategoryInput, "slug">,
+) {
+  return request<AdminContent["lessonCategories"][number]>(
+    `/admin/lesson-categories/${encodeURIComponent(id)}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+}
+
+export function setAdminLessonCategoryStatus(
+  id: string,
+  action: "publish" | "restore" | "archive",
+) {
+  return request<AdminContent["lessonCategories"][number]>(
+    `/admin/lesson-categories/${encodeURIComponent(id)}${action === "archive" ? "" : `/${action}`}`,
+    { method: action === "archive" ? "DELETE" : "POST" },
+  );
+}
+
 export function updateAdminLesson(
   id: string,
   input: Omit<Parameters<typeof createAdminLesson>[0], "slug">,
@@ -423,6 +508,36 @@ export function updateAdminLesson(
     method: "PATCH",
     body: JSON.stringify(input),
   });
+}
+
+export function createAdminLessonVersion(id: string) {
+  return request<NonNullable<AdminLesson["editableVersion"]>>(
+    `/admin/lessons/${encodeURIComponent(id)}/versions`,
+    { method: "POST" },
+  );
+}
+
+export async function listAdminAssets() {
+  return (await request<{ items: ContentAsset[] }>("/admin/assets")).items;
+}
+
+export function uploadAdminAsset(file: File, altText: string) {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("altText", altText);
+  return request<ContentAsset>("/admin/assets", { method: "POST", body });
+}
+
+export function deleteAdminAsset(id: string) {
+  return request<{ success: true }>(`/admin/assets/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export function mediaUrl(asset: ContentAsset) {
+  return asset.url.startsWith("http")
+    ? asset.url
+    : `${API_BASE}${asset.url.replace(/^\/api\/v1/, "")}`;
 }
 
 export function setAdminLessonProblems(id: string, problemIds: string[]) {

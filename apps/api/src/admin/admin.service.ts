@@ -7,11 +7,13 @@ import type { AuthenticatedUser } from "../common/request-context";
 import { PrismaService } from "../database/prisma.service";
 import type {
   CreateLessonDto,
+  CreateLessonCategoryDto,
   CreateProblemDto,
   LinkLessonProblemsDto,
   SaveTestCasesDto,
   SetProblemRelationsDto,
   UpdateLessonDto,
+  UpdateLessonCategoryDto,
   UpdateProblemDto,
 } from "./dto/admin.dto";
 
@@ -20,46 +22,65 @@ export class AdminService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listContent() {
-    const [lessons, problems, categories] = await Promise.all([
-      this.prisma.client.lesson.findMany({
-        orderBy: [{ order: "asc" }, { updatedAt: "desc" }],
-        select: {
-          id: true,
-          slug: true,
-          title: true,
-          status: true,
-          order: true,
-          updatedAt: true,
-        },
-      }),
-      this.prisma.client.problem.findMany({
-        orderBy: { number: "asc" },
-        select: {
-          id: true,
-          number: true,
-          title: true,
-          difficulty: true,
-          status: true,
-          updatedAt: true,
-          currentVersionId: true,
-          versions: {
-            where: { publishedAt: null },
-            orderBy: { version: "desc" },
-            take: 1,
-            select: { id: true, version: true },
+    const [lessons, problems, categories, lessonCategories] = await Promise.all(
+      [
+        this.prisma.client.lesson.findMany({
+          orderBy: [{ order: "asc" }, { updatedAt: "desc" }],
+          select: {
+            id: true,
+            categoryId: true,
+            slug: true,
+            title: true,
+            status: true,
+            order: true,
+            updatedAt: true,
+            versions: {
+              where: { publishedAt: null },
+              orderBy: { version: "desc" },
+              take: 1,
+              select: { id: true, version: true, title: true },
+            },
           },
-        },
-      }),
-      this.prisma.client.category.findMany({ orderBy: { name: "asc" } }),
-    ]);
+        }),
+        this.prisma.client.problem.findMany({
+          orderBy: { number: "asc" },
+          select: {
+            id: true,
+            number: true,
+            title: true,
+            difficulty: true,
+            status: true,
+            updatedAt: true,
+            currentVersionId: true,
+            versions: {
+              where: { publishedAt: null },
+              orderBy: { version: "desc" },
+              take: 1,
+              select: { id: true, version: true },
+            },
+          },
+        }),
+        this.prisma.client.category.findMany({ orderBy: { name: "asc" } }),
+        this.prisma.client.lessonCategory.findMany({
+          orderBy: [{ order: "asc" }, { title: "asc" }],
+          include: { _count: { select: { lessons: true } } },
+        }),
+      ],
+    );
     return {
-      lessons,
+      lessons: lessons.map(({ versions, ...lesson }) => ({
+        ...lesson,
+        title: versions[0]?.title ?? lesson.title,
+        editableVersionId: versions[0]?.id ?? null,
+        editableVersion: versions[0]?.version ?? null,
+      })),
       problems: problems.map(({ versions, ...problem }) => ({
         ...problem,
         editableVersionId: versions[0]?.id ?? null,
         editableVersion: versions[0]?.version ?? null,
       })),
       categories,
+      lessonCategories,
     };
   }
 
@@ -67,6 +88,12 @@ export class AdminService {
     const lesson = await this.prisma.client.lesson.findUnique({
       where: { id },
       include: {
+        currentVersion: true,
+        versions: {
+          where: { publishedAt: null },
+          orderBy: { version: "desc" },
+          take: 1,
+        },
         problems: {
           orderBy: { order: "asc" },
           select: { problemId: true, order: true },
@@ -74,7 +101,22 @@ export class AdminService {
       },
     });
     if (!lesson) this.notFound("강의를 찾을 수 없습니다.");
-    return lesson;
+    const editableVersion = lesson.versions[0] ?? lesson.currentVersion;
+    return {
+      id: lesson.id,
+      categoryId: lesson.categoryId,
+      slug: lesson.slug,
+      order: lesson.order,
+      status: lesson.status,
+      publishedAt: lesson.publishedAt,
+      currentVersionId: lesson.currentVersionId,
+      editable: Boolean(editableVersion && !editableVersion.publishedAt),
+      editableVersion,
+      title: editableVersion?.title ?? lesson.title,
+      summary: editableVersion?.summary ?? lesson.summary,
+      body: editableVersion?.body ?? lesson.body,
+      problems: lesson.problems,
+    };
   }
 
   async getProblem(id: string) {
@@ -124,9 +166,20 @@ export class AdminService {
     return validation;
   }
 
-  createLesson(dto: CreateLessonDto, actor: AuthenticatedUser) {
+  async createLesson(dto: CreateLessonDto, actor: AuthenticatedUser) {
+    await this.requireLessonCategory(dto.categoryId);
     return this.prisma.transaction(async (tx) => {
-      const lesson = await tx.lesson.create({ data: dto });
+      const { title, summary, body, ...lessonData } = dto;
+      const lesson = await tx.lesson.create({
+        data: { ...lessonData, title, summary, body },
+      });
+      const version = await tx.lessonVersion.create({
+        data: { lessonId: lesson.id, version: 1, title, summary, body },
+      });
+      await tx.lesson.update({
+        where: { id: lesson.id },
+        data: { currentVersionId: version.id },
+      });
       await tx.auditLog.create({
         data: {
           actorId: actor.id,
@@ -135,7 +188,11 @@ export class AdminService {
           targetId: lesson.id,
         },
       });
-      return lesson;
+      return {
+        ...lesson,
+        currentVersionId: version.id,
+        editableVersion: version,
+      };
     });
   }
 
@@ -144,9 +201,38 @@ export class AdminService {
     dto: UpdateLessonDto,
     actor: AuthenticatedUser,
   ) {
-    await this.requireLesson(id);
+    if (dto.categoryId) await this.requireLessonCategory(dto.categoryId);
+    const lesson = await this.prisma.client.lesson.findUnique({
+      where: { id },
+      include: {
+        versions: {
+          where: { publishedAt: null },
+          orderBy: { version: "desc" },
+          take: 1,
+        },
+      },
+    });
+    if (!lesson) this.notFound("강의를 찾을 수 없습니다.");
+    const version = lesson.versions[0];
+    if (!version) {
+      throw new ConflictException({
+        code: "PUBLISHED_VERSION_IMMUTABLE",
+        message: "공개 강의는 새 버전을 만들어 수정해야 합니다.",
+      });
+    }
     return this.prisma.transaction(async (tx) => {
-      const lesson = await tx.lesson.update({ where: { id }, data: dto });
+      const { order, categoryId, ...versionData } = dto;
+      const updated = await tx.lessonVersion.update({
+        where: { id: version.id },
+        data: versionData,
+      });
+      const savedLesson =
+        order === undefined && categoryId === undefined
+          ? lesson
+          : await tx.lesson.update({
+              where: { id },
+              data: { order, categoryId },
+            });
       await tx.auditLog.create({
         data: {
           actorId: actor.id,
@@ -155,7 +241,115 @@ export class AdminService {
           targetId: id,
         },
       });
-      return lesson;
+      return {
+        ...savedLesson,
+        title: updated.title,
+        summary: updated.summary,
+        body: updated.body,
+        editableVersion: updated,
+      };
+    });
+  }
+
+  createLessonCategory(dto: CreateLessonCategoryDto, actor: AuthenticatedUser) {
+    return this.prisma.transaction(async (tx) => {
+      const category = await tx.lessonCategory.create({ data: dto });
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          action: "LESSON_CATEGORY_CREATE",
+          targetType: "LessonCategory",
+          targetId: category.id,
+        },
+      });
+      return category;
+    });
+  }
+
+  async updateLessonCategory(
+    id: string,
+    dto: UpdateLessonCategoryDto,
+    actor: AuthenticatedUser,
+  ) {
+    await this.requireLessonCategory(id);
+    return this.prisma.transaction(async (tx) => {
+      const category = await tx.lessonCategory.update({
+        where: { id },
+        data: dto,
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          action: "LESSON_CATEGORY_UPDATE",
+          targetType: "LessonCategory",
+          targetId: id,
+        },
+      });
+      return category;
+    });
+  }
+
+  async changeLessonCategoryStatus(
+    id: string,
+    status: "DRAFT" | "PUBLISHED" | "ARCHIVED",
+    actor: AuthenticatedUser,
+  ) {
+    await this.requireLessonCategory(id);
+    return this.prisma.transaction(async (tx) => {
+      const category = await tx.lessonCategory.update({
+        where: { id },
+        data: { status },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          action: `LESSON_CATEGORY_${status}`,
+          targetType: "LessonCategory",
+          targetId: id,
+        },
+      });
+      return category;
+    });
+  }
+
+  async createLessonVersion(id: string, actor: AuthenticatedUser) {
+    const lesson = await this.prisma.client.lesson.findUnique({
+      where: { id },
+      include: {
+        currentVersion: true,
+        versions: { where: { publishedAt: null }, take: 1 },
+      },
+    });
+    if (!lesson?.currentVersion) this.notFound("강의를 찾을 수 없습니다.");
+    if (lesson.versions.length)
+      throw new ConflictException({
+        code: "DRAFT_VERSION_EXISTS",
+        message: "이미 편집 중인 강의 초안 버전이 있습니다.",
+      });
+    const source = lesson.currentVersion;
+    return this.prisma.transaction(async (tx) => {
+      const latest = await tx.lessonVersion.aggregate({
+        where: { lessonId: id },
+        _max: { version: true },
+      });
+      const version = await tx.lessonVersion.create({
+        data: {
+          lessonId: id,
+          version: (latest._max.version ?? 0) + 1,
+          title: source.title,
+          summary: source.summary,
+          body: source.body,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          action: "LESSON_VERSION_CREATE",
+          targetType: "LessonVersion",
+          targetId: version.id,
+        },
+      });
+      return version;
     });
   }
 
@@ -165,11 +359,36 @@ export class AdminService {
   }
 
   async publishLesson(id: string, actor: AuthenticatedUser) {
-    await this.requireLesson(id);
+    const source = await this.prisma.client.lesson.findUnique({
+      where: { id },
+      include: {
+        versions: {
+          where: { publishedAt: null },
+          orderBy: { version: "desc" },
+          take: 1,
+        },
+        currentVersion: true,
+      },
+    });
+    if (!source) this.notFound("강의를 찾을 수 없습니다.");
+    const version = source.versions[0] ?? source.currentVersion;
+    if (!version) this.notFound("공개할 강의 버전이 없습니다.");
+    const publishedAt = new Date();
     return this.prisma.transaction(async (tx) => {
       const lesson = await tx.lesson.update({
         where: { id },
-        data: { status: "PUBLISHED", publishedAt: new Date() },
+        data: {
+          status: "PUBLISHED",
+          publishedAt,
+          currentVersionId: version.id,
+          title: version.title,
+          summary: version.summary,
+          body: version.body,
+        },
+      });
+      await tx.lessonVersion.update({
+        where: { id: version.id },
+        data: { publishedAt },
       });
       await tx.auditLog.create({
         data: {
@@ -628,6 +847,17 @@ export class AdminService {
       }))
     ) {
       this.notFound("문제를 찾을 수 없습니다.");
+    }
+  }
+
+  private async requireLessonCategory(id: string): Promise<void> {
+    if (
+      !(await this.prisma.client.lessonCategory.findUnique({
+        where: { id },
+        select: { id: true },
+      }))
+    ) {
+      this.notFound("학습 카테고리를 찾을 수 없습니다.");
     }
   }
 

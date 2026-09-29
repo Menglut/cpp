@@ -22,6 +22,12 @@
 - [x] 관리자 문제 테스트·카테고리·강의 연결 저장
 - [x] 관리자 기준 코드 검증·공개·보관·복원 연결
 - [x] 관리자 콘텐츠용 `localStorage` 제거
+- [x] 관리자 강의·문제·미디어 화면 분리와 검색·상태 필터
+- [x] 관리자 이미지 업로드·목록·삭제 API 연결
+- [x] 공개 강의의 새 버전 작성·게시 흐름 연결
+- [x] 표·이미지·코드 강조·콜아웃·자동 목차 Markdown 렌더러
+- [x] 학습 카테고리와 세부 강의 계층형 목록·목차
+- [x] 관리자 학습 카테고리 생성·수정·공개·보관과 강의 소속 변경
 
 ## 다음 작업에서 진행
 
@@ -38,10 +44,11 @@
 
 ## 로컬 DB 적용 상태
 
-2026-09-29 기준 PostgreSQL과 Redis가 healthy이며 migration 4개와 초기 seed가 적용되어 있다. 새 환경에서는 아래 명령을 순서대로 실행한다.
+2026-09-29 기준 PostgreSQL과 Redis가 healthy이며 migration 6개와 초기 seed가 적용되어 있다. 새 환경에서는 아래 명령을 순서대로 실행한다.
 
 ```powershell
 npm.cmd run infra:up
+npm.cmd run prisma:deploy
 npm.cmd run prisma:seed
 ```
 

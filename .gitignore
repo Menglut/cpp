@@ -7,7 +7,11 @@ coverage/
 .env
 .env.*
 !.env.example
+!.env.production.example
+deploy/judge0.conf
+backups/
 apps/web/public/monaco/
 apps/api/src/generated/prisma/
+apps/api/uploads/
 apps/judge-worker/src/generated/prisma/
 tmp/

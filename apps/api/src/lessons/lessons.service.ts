@@ -6,17 +6,45 @@ export class LessonsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list() {
-    const items = await this.prisma.client.lesson.findMany({
+    const categories = await this.prisma.client.lessonCategory.findMany({
       where: { status: "PUBLISHED" },
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-      select: { id: true, slug: true, title: true, summary: true, order: true },
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        summary: true,
+        order: true,
+        lessons: {
+          where: { status: "PUBLISHED" },
+          orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+          select: {
+            id: true,
+            slug: true,
+            title: true,
+            summary: true,
+            order: true,
+          },
+        },
+      },
     });
-    return { items, nextCursor: null };
+    const items = categories.flatMap((category) =>
+      category.lessons.map((lesson) => ({
+        ...lesson,
+        category: {
+          id: category.id,
+          slug: category.slug,
+          title: category.title,
+          order: category.order,
+        },
+      })),
+    );
+    return { categories, items, nextCursor: null };
   }
 
   async get(slug: string) {
     const lesson = await this.prisma.client.lesson.findFirst({
-      where: { slug, status: "PUBLISHED" },
+      where: { slug, status: "PUBLISHED", category: { status: "PUBLISHED" } },
       select: {
         id: true,
         slug: true,
@@ -24,24 +52,40 @@ export class LessonsService {
         summary: true,
         body: true,
         order: true,
+        category: {
+          select: { id: true, slug: true, title: true, order: true },
+        },
         problems: {
           where: { problem: { status: "PUBLISHED" } },
           orderBy: { order: "asc" },
           select: {
             order: true,
-            problem: { select: { id: true, number: true, title: true, difficulty: true } },
+            problem: {
+              select: { id: true, number: true, title: true, difficulty: true },
+            },
           },
         },
       },
     });
     if (!lesson) {
-      throw new NotFoundException({ code: "LESSON_NOT_FOUND", message: "강의를 찾을 수 없습니다." });
+      throw new NotFoundException({
+        code: "LESSON_NOT_FOUND",
+        message: "강의를 찾을 수 없습니다.",
+      });
     }
     return {
       ...lesson,
       problems: lesson.problems.map(
-        ({ problem, order }: {
-          problem: { id: string; number: number; title: string; difficulty: number };
+        ({
+          problem,
+          order,
+        }: {
+          problem: {
+            id: string;
+            number: number;
+            title: string;
+            difficulty: number;
+          };
           order: number;
         }) => ({ ...problem, order }),
       ),

@@ -9,6 +9,7 @@ import { DatabaseModule } from "./database/database.module";
 import { ExecutionModule } from "./execution/execution.module";
 import { HealthModule } from "./health/health.module";
 import { LessonsModule } from "./lessons/lessons.module";
+import { MediaModule } from "./media/media.module";
 import { ProblemsModule } from "./problems/problems.module";
 import { ProgressModule } from "./progress/progress.module";
 import { RedisModule } from "./redis/redis.module";
@@ -24,6 +25,7 @@ import { RedisModule } from "./redis/redis.module";
     ProgressModule,
     ExecutionModule,
     AdminModule,
+    MediaModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: SessionGuard }],
 })

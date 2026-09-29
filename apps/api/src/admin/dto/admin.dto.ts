@@ -18,6 +18,7 @@ import {
 } from "../../generated/prisma/enums";
 
 export class CreateLessonDto {
+  @IsString() categoryId!: string;
   @IsString() @Length(1, 100) slug!: string;
   @IsString() @Length(1, 200) title!: string;
   @IsString() @MaxLength(500) summary!: string;
@@ -26,9 +27,23 @@ export class CreateLessonDto {
 }
 
 export class UpdateLessonDto {
+  @IsOptional() @IsString() categoryId?: string;
   @IsOptional() @IsString() @Length(1, 200) title?: string;
   @IsOptional() @IsString() @MaxLength(500) summary?: string;
   @IsOptional() @IsString() body?: string;
+  @IsOptional() @IsInt() @Min(0) order?: number;
+}
+
+export class CreateLessonCategoryDto {
+  @IsString() @Length(1, 100) slug!: string;
+  @IsString() @Length(1, 200) title!: string;
+  @IsString() @MaxLength(500) summary = "";
+  @IsInt() @Min(0) order = 0;
+}
+
+export class UpdateLessonCategoryDto {
+  @IsOptional() @IsString() @Length(1, 200) title?: string;
+  @IsOptional() @IsString() @MaxLength(500) summary?: string;
   @IsOptional() @IsInt() @Min(0) order?: number;
 }
 

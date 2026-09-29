@@ -16,11 +16,13 @@ import { Role } from "../generated/prisma/enums";
 import { AdminService } from "./admin.service";
 import {
   CreateLessonDto,
+  CreateLessonCategoryDto,
   CreateProblemDto,
   LinkLessonProblemsDto,
   SaveTestCasesDto,
   SetProblemRelationsDto,
   UpdateLessonDto,
+  UpdateLessonCategoryDto,
   UpdateProblemDto,
 } from "./dto/admin.dto";
 
@@ -33,6 +35,47 @@ export class AdminController {
   @Get("content")
   listContent() {
     return this.admin.listContent();
+  }
+
+  @Post("lesson-categories")
+  createLessonCategory(
+    @Body() dto: CreateLessonCategoryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.admin.createLessonCategory(dto, user);
+  }
+
+  @Patch("lesson-categories/:id")
+  updateLessonCategory(
+    @Param("id") id: string,
+    @Body() dto: UpdateLessonCategoryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.admin.updateLessonCategory(id, dto, user);
+  }
+
+  @Post("lesson-categories/:id/publish")
+  publishLessonCategory(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.admin.changeLessonCategoryStatus(id, "PUBLISHED", user);
+  }
+
+  @Post("lesson-categories/:id/restore")
+  restoreLessonCategory(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.admin.changeLessonCategoryStatus(id, "DRAFT", user);
+  }
+
+  @Delete("lesson-categories/:id")
+  archiveLessonCategory(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.admin.changeLessonCategoryStatus(id, "ARCHIVED", user);
   }
 
   @Get("lessons/:id")
@@ -65,6 +108,14 @@ export class AdminController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.admin.updateLesson(id, dto, user);
+  }
+
+  @Post("lessons/:id/versions")
+  createLessonVersion(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.admin.createLessonVersion(id, user);
   }
 
   @Put("lessons/:id/problems")

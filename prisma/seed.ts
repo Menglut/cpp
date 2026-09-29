@@ -19,6 +19,37 @@ const lessons = [
   ["stl", "STL 시작하기", "vector와 sort의 기본 사용법을 배웁니다."],
 ] as const;
 
+const lessonCategories = [
+  ["cpp-basics", "C++ 시작", "프로그램 구조와 기본 입출력, 자료형을 익힙니다."],
+  [
+    "control-flow",
+    "흐름 제어",
+    "조건과 반복으로 프로그램의 실행 흐름을 제어합니다.",
+  ],
+  [
+    "arrays-strings",
+    "배열과 문자열",
+    "연속된 데이터를 저장하고 안전하게 순회합니다.",
+  ],
+  [
+    "standard-library",
+    "표준 라이브러리",
+    "STL 컨테이너와 알고리즘의 기초를 익힙니다.",
+  ],
+] as const;
+
+const lessonCategoryBySlug: Record<
+  (typeof lessons)[number][0],
+  (typeof lessonCategories)[number][0]
+> = {
+  io: "cpp-basics",
+  variables: "cpp-basics",
+  conditions: "control-flow",
+  loops: "control-flow",
+  arrays: "arrays-strings",
+  stl: "standard-library",
+};
+
 const lessonBodies: Record<(typeof lessons)[number][0], string> = {
   io: `## 학습 목표
 
@@ -27,6 +58,29 @@ C++ 프로그램의 시작점인 \`main\` 함수와 표준 입출력을 이해�
 ## 핵심 개념
 
 \`#include <iostream>\`으로 입출력 기능을 가져옵니다. \`std::cin\`은 공백이나 줄바꿈을 기준으로 값을 읽고, \`std::cout\`은 값을 출력합니다. 여러 값을 이어 출력할 때는 \`<<\` 연산자를 사용합니다.
+
+| 표현 | 역할 | 예시 |
+| --- | --- | --- |
+| \`std::cin >> 값\` | 표준 입력에서 값을 읽습니다. | \`std::cin >> number;\` |
+| \`std::cout << 값\` | 표준 출력으로 값을 보냅니다. | \`std::cout << number;\` |
+| \`'\\n'\` | 줄을 바꿉니다. | \`std::cout << '\\n';\` |
+
+## 첫 프로그램
+
+\`\`\`cpp
+#include <iostream>
+
+int main() {
+    int number = 0;
+    std::cin >> number;
+    std::cout << "입력한 수: " << number << '\\n';
+    return 0;
+}
+\`\`\`
+
+:::tip
+처음에는 \`using namespace std;\` 없이 \`std::\`를 직접 적으면 이름이 어디에서 왔는지 더 분명하게 익힐 수 있습니다.
+:::
 
 ## 확인할 점
 
@@ -241,31 +295,69 @@ const categoryNames: Record<string, string> = {
 };
 
 async function seed(): Promise<void> {
+  const lessonCategoryIds = new Map<string, string>();
+  for (const [index, [slug, title, summary]] of lessonCategories.entries()) {
+    const category = await prisma.lessonCategory.upsert({
+      where: { slug },
+      update: { title, summary, order: index + 1, status: "PUBLISHED" },
+      create: { slug, title, summary, order: index + 1, status: "PUBLISHED" },
+    });
+    lessonCategoryIds.set(slug, category.id);
+  }
   const lessonIds = new Map<string, string>();
   for (const [index, [slug, title, summary]] of lessons.entries()) {
     const body = lessonBodies[slug];
+    const categoryId = lessonCategoryIds.get(lessonCategoryBySlug[slug])!;
+    const categoryOrder =
+      lessons
+        .slice(0, index)
+        .filter(
+          ([previousSlug]) =>
+            lessonCategoryBySlug[previousSlug] === lessonCategoryBySlug[slug],
+        ).length + 1;
     const lesson = await prisma.lesson.upsert({
       where: { slug },
       update: {
+        categoryId,
         title,
         summary,
         body,
-        order: index + 1,
+        order: categoryOrder,
         status: "PUBLISHED",
         publishedAt,
       },
       create: {
         slug,
+        categoryId,
         title,
         summary,
-        order: index + 1,
+        order: categoryOrder,
         status: "PUBLISHED",
         publishedAt,
         body,
       },
     });
+    const lessonVersion = await prisma.lessonVersion.upsert({
+      where: { lessonId_version: { lessonId: lesson.id, version: 1 } },
+      update: { title, summary, body, publishedAt },
+      create: {
+        lessonId: lesson.id,
+        version: 1,
+        title,
+        summary,
+        body,
+        publishedAt,
+      },
+    });
+    await prisma.lesson.update({
+      where: { id: lesson.id },
+      data: { currentVersionId: lessonVersion.id },
+    });
     lessonIds.set(slug, lesson.id);
   }
+  await prisma.lessonCategory.deleteMany({
+    where: { slug: "uncategorized", lessons: { none: {} } },
+  });
 
   const categoryIds = new Map<string, string>();
   for (const [slug, name] of Object.entries(categoryNames)) {

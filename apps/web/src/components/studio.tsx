@@ -2,6 +2,7 @@
 import Link from "next/link";
 import Admin from "./admin";
 import Markdown from "./markdown";
+import { extractMarkdownHeadings } from "./markdown-utils";
 import ConfirmDialog from "./confirm-dialog";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
@@ -31,10 +32,10 @@ import {
   getCurrentUser,
   getLearningProgress,
   getLesson,
+  getLessonCatalog,
   getProblem,
   getRun,
   getSubmission,
-  listLessons,
   listProblemCategories,
   listProblems,
   listMySubmissions,
@@ -44,6 +45,7 @@ import {
   setLessonCompletion,
   type ApiUser,
   type LessonDetail,
+  type LessonCategory,
   type LessonSummary,
   type ProblemCategory,
   type ProblemDetail,
@@ -171,6 +173,7 @@ export default function Studio() {
   const [user, setUser] = useState<User | null>(null),
     [ready, setReady] = useState(false),
     [lessons, setLessons] = useState<LessonSummary[]>([]),
+    [lessonCategories, setLessonCategories] = useState<LessonCategory[]>([]),
     [problems, setProblems] = useState<ProblemSummary[]>([]),
     [categories, setCategories] = useState<ProblemCategory[]>([]),
     [lessonDetail, setLessonDetail] = useState<LessonDetail | null>(null),
@@ -188,7 +191,7 @@ export default function Studio() {
     let active = true;
     Promise.allSettled([
       getCurrentUser(),
-      listLessons(),
+      getLessonCatalog(),
       listProblems(),
       listProblemCategories(),
     ])
@@ -196,7 +199,10 @@ export default function Studio() {
         if (!active) return;
         if (current.status === "fulfilled")
           setUser(current.value ? toUser(current.value) : null);
-        if (lessonList.status === "fulfilled") setLessons(lessonList.value);
+        if (lessonList.status === "fulfilled") {
+          setLessons(lessonList.value.items);
+          setLessonCategories(lessonList.value.categories);
+        }
         if (problemList.status === "fulfilled") setProblems(problemList.value);
         if (categoryList.status === "fulfilled")
           setCategories(categoryList.value);
@@ -433,30 +439,45 @@ export default function Studio() {
           <span>데이터베이스에 공개된 과정만 표시됩니다.</span>
         </div>
         <div className="lesson-grid">
-          {lessons.map((l, i) => (
-            <Link
-              href={"/learn/" + l.slug}
-              className="lesson-card"
-              key={l.slug}
-            >
-              <div className="card-top">
-                <span className="chapter-number">
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                {completed.includes(l.slug) ? (
-                  <span className="badge green">학습 완료</span>
-                ) : (
-                  <span className="badge gray">기초 과정</span>
-                )}
+          {lessonCategories.map((category, categoryIndex) => (
+            <section className="lesson-category" key={category.id}>
+              <div className="lesson-category-heading">
+                <span>{categoryIndex + 1}</span>
+                <div>
+                  <h2>{category.title}</h2>
+                  <p>{category.summary}</p>
+                </div>
               </div>
-              <BookOpen className="lesson-icon" size={28} />
-              <h2>{l.title}</h2>
-              <p>{l.summary}</p>
-              <div className="card-footer">
-                <span>CHAPTER {String(l.order).padStart(2, "0")}</span>
-                <ArrowRight size={18} />
+              <div className="lesson-category-items">
+                {category.lessons.map((lesson, lessonIndex) => (
+                  <Link
+                    href={"/learn/" + lesson.slug}
+                    className="lesson-card"
+                    key={lesson.slug}
+                  >
+                    <div className="card-top">
+                      <span className="chapter-number">
+                        {categoryIndex + 1}.{lessonIndex + 1}
+                      </span>
+                      {completed.includes(lesson.slug) ? (
+                        <span className="badge green">학습 완료</span>
+                      ) : (
+                        <span className="badge gray">{category.title}</span>
+                      )}
+                    </div>
+                    <BookOpen className="lesson-icon" size={28} />
+                    <h3>{lesson.title}</h3>
+                    <p>{lesson.summary}</p>
+                    <div className="card-footer">
+                      <span>
+                        LESSON {categoryIndex + 1}.{lessonIndex + 1}
+                      </span>
+                      <ArrowRight size={18} />
+                    </div>
+                  </Link>
+                ))}
               </div>
-            </Link>
+            </section>
           ))}
         </div>
       </>
@@ -470,6 +491,7 @@ export default function Studio() {
       <LessonView
         lesson={lessonDetail}
         lessons={lessons}
+        categories={lessonCategories}
         completed={completed}
         user={user}
         onCompletionChange={updateLessonCompletion}
@@ -825,42 +847,61 @@ function ContentError({ message }: { message: string }) {
 function LessonView({
   lesson,
   lessons,
+  categories,
   completed,
   user,
   onCompletionChange,
 }: {
   lesson: LessonDetail;
   lessons: LessonSummary[];
+  categories: LessonCategory[];
   completed: string[];
   user: User | null;
   onCompletionChange: (slug: string, completed: boolean) => Promise<void>;
 }) {
   const router = useRouter();
   const index = lessons.findIndex((item) => item.slug === lesson.slug);
+  const categoryIndex = categories.findIndex(
+    (item) => item.id === lesson.category.id,
+  );
+  const lessonIndex =
+    categories[categoryIndex]?.lessons.findIndex(
+      (item) => item.slug === lesson.slug,
+    ) ?? -1;
+  const headings = extractMarkdownHeadings(lesson.body);
   return (
     <div className="lesson-layout">
       <aside className="lesson-nav">
         <span className="eyebrow">C++ 기초 과정</span>
-        {lessons.map((item, itemIndex) => (
-          <Link
-            className={item.slug === lesson.slug ? "selected" : ""}
-            href={"/learn/" + item.slug}
-            key={item.slug}
-          >
-            <span>{String(itemIndex + 1).padStart(2, "0")}</span>
-            {item.title}
-            {completed.includes(item.slug) && <Check size={14} />}
-          </Link>
+        {categories.map((category, sectionIndex) => (
+          <div className="lesson-nav-group" key={category.id}>
+            <strong>
+              {sectionIndex + 1}. {category.title}
+            </strong>
+            {category.lessons.map((item, itemIndex) => (
+              <Link
+                className={item.slug === lesson.slug ? "selected" : ""}
+                href={"/learn/" + item.slug}
+                key={item.slug}
+              >
+                <span>
+                  {sectionIndex + 1}.{itemIndex + 1}
+                </span>
+                {item.title}
+                {completed.includes(item.slug) && <Check size={14} />}
+              </Link>
+            ))}
+          </div>
         ))}
       </aside>
       <article className="article">
         <Link className="breadcrumb" href="/learn">
-          C++ 학습 / 기초 과정
+          C++ 학습 / {lesson.category.title}
         </Link>
         <h1>{lesson.title}</h1>
         <p className="article-intro">{lesson.summary}</p>
         <div className="article-meta">
-          CHAPTER {String(lesson.order).padStart(2, "0")} · C++17
+          LESSON {categoryIndex + 1}.{lessonIndex + 1} · C++17
         </div>
         <section id="concept">
           <Markdown>{lesson.body}</Markdown>
@@ -920,7 +961,19 @@ function LessonView({
       </article>
       <aside className="toc">
         <span>이 강의에서</span>
-        <a href="#concept">강의 내용</a>
+        {headings.length ? (
+          headings.map((heading) => (
+            <a
+              className={heading.depth === 3 ? "toc-sub" : ""}
+              href={`#${heading.id}`}
+              key={heading.id}
+            >
+              {heading.text}
+            </a>
+          ))
+        ) : (
+          <a href="#concept">강의 내용</a>
+        )}
         <a href="#practice">관련 문제</a>
       </aside>
     </div>
