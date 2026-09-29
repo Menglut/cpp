@@ -1,0 +1,325 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../apps/api/src/generated/prisma"
+  moduleFormat        = "cjs"
+  importFileExtension = ""
+}
+
+generator workerClient {
+  provider            = "prisma-client"
+  output              = "../apps/judge-worker/src/generated/prisma"
+  moduleFormat        = "cjs"
+  importFileExtension = ""
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ComparatorType {
+  TOKEN
+  EXACT
+}
+
+enum TestCaseVisibility {
+  EXAMPLE
+  HIDDEN
+}
+
+enum RunStatus {
+  PENDING
+  QUEUED
+  COMPILING
+  RUNNING
+  SUCCESS
+  CE
+  RE
+  TLE
+  MLE
+  OLE
+  SYSTEM_ERROR
+  CANCELLED
+}
+
+enum SubmissionStatus {
+  PENDING
+  QUEUED
+  COMPILING
+  RUNNING
+  AC
+  WA
+  CE
+  RE
+  TLE
+  MLE
+  OLE
+  SYSTEM_ERROR
+  CANCELLED
+}
+
+enum OutboxStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+model User {
+  id             String           @id @default(uuid()) @db.Uuid
+  email          String           @unique @db.VarChar(320)
+  nickname       String           @db.VarChar(40)
+  passwordHash   String           @map("password_hash") @db.VarChar(255)
+  role           Role             @default(USER)
+  disabledAt     DateTime?        @map("disabled_at") @db.Timestamptz(3)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  sessions       Session[]
+  runs           Run[]
+  submissions    Submission[]
+  lessonProgress LessonProgress[]
+  auditLogs      AuditLog[]       @relation("AuditActor")
+
+  @@map("users")
+}
+
+model Session {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  tokenHash         String    @unique @map("token_hash") @db.Char(64)
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(3)
+  absoluteExpiresAt DateTime  @map("absolute_expires_at") @db.Timestamptz(3)
+  lastSeenAt        DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(3)
+  userAgent         String?   @map("user_agent") @db.VarChar(512)
+  ipAddress         String?   @map("ip_address") @db.VarChar(64)
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("sessions")
+}
+
+model Lesson {
+  id          String           @id @default(uuid()) @db.Uuid
+  slug        String           @unique @db.VarChar(100)
+  title       String           @db.VarChar(200)
+  summary     String           @db.VarChar(500)
+  body        String           @db.Text
+  order       Int              @default(0)
+  status      ContentStatus    @default(DRAFT)
+  publishedAt DateTime?        @map("published_at") @db.Timestamptz(3)
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  problems    LessonProblem[]
+  progress    LessonProgress[]
+
+  @@index([status, order])
+  @@map("lessons")
+}
+
+model LessonProgress {
+  userId      String   @map("user_id") @db.Uuid
+  lessonId    String   @map("lesson_id") @db.Uuid
+  completedAt DateTime @default(now()) @map("completed_at") @db.Timestamptz(3)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@id([userId, lessonId])
+  @@index([userId, completedAt(sort: Desc)])
+  @@map("lesson_progress")
+}
+
+model Category {
+  id       String            @id @default(uuid()) @db.Uuid
+  slug     String            @unique @db.VarChar(80)
+  name     String            @db.VarChar(80)
+  problems ProblemCategory[]
+
+  @@map("categories")
+}
+
+model Problem {
+  id               String            @id @default(uuid()) @db.Uuid
+  number           Int               @unique
+  title            String            @db.VarChar(200)
+  difficulty       Int
+  status           ContentStatus     @default(DRAFT)
+  currentVersionId String?           @unique @map("current_version_id") @db.Uuid
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  currentVersion   ProblemVersion?   @relation("CurrentProblemVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions         ProblemVersion[]  @relation("ProblemVersions")
+  categories       ProblemCategory[]
+  lessons          LessonProblem[]
+  runs             Run[]
+  submissions      Submission[]
+
+  @@index([status, number])
+  @@map("problems")
+}
+
+model ProblemVersion {
+  id                String         @id @default(uuid()) @db.Uuid
+  problemId         String         @map("problem_id") @db.Uuid
+  version           Int
+  statement         String         @db.Text
+  inputDescription  String         @map("input_description") @db.Text
+  outputDescription String         @map("output_description") @db.Text
+  constraints       String         @db.Text
+  comparator        ComparatorType @default(TOKEN)
+  allowFinalNewline Boolean        @default(true) @map("allow_final_newline")
+  timeLimitMs       Int            @default(1000) @map("time_limit_ms")
+  memoryLimitKiB    Int            @default(131072) @map("memory_limit_kib")
+  starterCode       String         @map("starter_code") @db.Text
+  referenceSource   String?        @map("reference_source") @db.Text
+  validatedAt       DateTime?      @map("validated_at") @db.Timestamptz(3)
+  publishedAt       DateTime?      @map("published_at") @db.Timestamptz(3)
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  problem           Problem        @relation("ProblemVersions", fields: [problemId], references: [id], onDelete: Cascade)
+  currentForProblem Problem?       @relation("CurrentProblemVersion")
+  testCases         TestCase[]
+  runs              Run[]
+  submissions       Submission[]
+
+  @@unique([problemId, version])
+  @@index([problemId, publishedAt])
+  @@map("problem_versions")
+}
+
+model TestCase {
+  id               String             @id @default(uuid()) @db.Uuid
+  problemVersionId String             @map("problem_version_id") @db.Uuid
+  position         Int
+  visibility       TestCaseVisibility
+  input            String             @db.Text
+  expectedOutput   String             @map("expected_output") @db.Text
+  explanation      String?            @db.Text
+  problemVersion   ProblemVersion     @relation(fields: [problemVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([problemVersionId, position])
+  @@map("test_cases")
+}
+
+model ProblemCategory {
+  problemId  String   @map("problem_id") @db.Uuid
+  categoryId String   @map("category_id") @db.Uuid
+  problem    Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([problemId, categoryId])
+  @@index([categoryId, problemId])
+  @@map("problem_categories")
+}
+
+model LessonProblem {
+  lessonId  String  @map("lesson_id") @db.Uuid
+  problemId String  @map("problem_id") @db.Uuid
+  order     Int     @default(0)
+  lesson    Lesson  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@id([lessonId, problemId])
+  @@index([problemId])
+  @@map("lesson_problems")
+}
+
+model Run {
+  id               String         @id @default(uuid()) @db.Uuid
+  userId           String         @map("user_id") @db.Uuid
+  problemId        String         @map("problem_id") @db.Uuid
+  problemVersionId String         @map("problem_version_id") @db.Uuid
+  language         String         @default("CPP17") @db.VarChar(20)
+  sourceCode       String         @map("source_code") @db.Text
+  stdin            String         @db.Text
+  status           RunStatus      @default(PENDING)
+  stdout           String?        @db.Text
+  stderr           String?        @db.Text
+  compileOutput    String?        @map("compile_output") @db.Text
+  executionTimeMs  Int?           @map("execution_time_ms")
+  memoryUsageKiB   Int?           @map("memory_usage_kib")
+  attemptNo        Int            @default(0) @map("attempt_no")
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  finishedAt       DateTime?      @map("finished_at") @db.Timestamptz(3)
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem          Problem        @relation(fields: [problemId], references: [id])
+  problemVersion   ProblemVersion @relation(fields: [problemVersionId], references: [id])
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@map("runs")
+}
+
+model Submission {
+  id                String           @id @default(uuid()) @db.Uuid
+  userId            String           @map("user_id") @db.Uuid
+  problemId         String           @map("problem_id") @db.Uuid
+  problemVersionId  String           @map("problem_version_id") @db.Uuid
+  idempotencyKey    String           @map("idempotency_key") @db.VarChar(128)
+  requestHash       String           @map("request_hash") @db.Char(64)
+  language          String           @default("CPP17") @db.VarChar(20)
+  sourceCode        String           @map("source_code") @db.Text
+  status            SubmissionStatus @default(PENDING)
+  executionTimeMs   Int?             @map("execution_time_ms")
+  memoryUsageKiB    Int?             @map("memory_usage_kib")
+  checkedCount      Int              @default(0) @map("checked_count")
+  passedCount       Int              @default(0) @map("passed_count")
+  totalCount        Int              @default(0) @map("total_count")
+  allowedDiagnostic String?          @map("allowed_diagnostic") @db.Text
+  compilerVersion   String?          @map("compiler_version") @db.VarChar(120)
+  attemptNo         Int              @default(0) @map("attempt_no")
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  finishedAt        DateTime?        @map("finished_at") @db.Timestamptz(3)
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem           Problem          @relation(fields: [problemId], references: [id])
+  problemVersion    ProblemVersion   @relation(fields: [problemVersionId], references: [id])
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([problemId, status])
+  @@index([status, createdAt])
+  @@map("submissions")
+}
+
+model OutboxEvent {
+  id           String       @id @default(uuid()) @db.Uuid
+  topic        String       @db.VarChar(100)
+  aggregateId  String       @map("aggregate_id") @db.Uuid
+  payload      Json
+  status       OutboxStatus @default(PENDING)
+  attemptCount Int          @default(0) @map("attempt_count")
+  availableAt  DateTime     @default(now()) @map("available_at") @db.Timestamptz(3)
+  publishedAt  DateTime?    @map("published_at") @db.Timestamptz(3)
+  lastError    String?      @map("last_error") @db.VarChar(1000)
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([status, availableAt])
+  @@map("outbox_events")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String   @db.VarChar(100)
+  targetType String   @map("target_type") @db.VarChar(100)
+  targetId   String?  @map("target_id") @db.VarChar(100)
+  requestId  String?  @map("request_id") @db.VarChar(100)
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  actor      User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt(sort: Desc)])
+  @@index([targetType, targetId])
+  @@map("audit_logs")
+}

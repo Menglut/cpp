@@ -1,0 +1,13 @@
+node_modules/
+.next/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+.env
+.env.*
+!.env.example
+apps/web/public/monaco/
+apps/api/src/generated/prisma/
+apps/judge-worker/src/generated/prisma/
+tmp/

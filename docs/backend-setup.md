@@ -1,0 +1,103 @@
+# CppStudy 백엔드 로컬 실행 안내
+
+## 준비물
+
+- Node.js 24 이상
+- npm 11 이상
+- Docker Desktop 또는 Docker Engine + Compose
+
+Docker가 실행 중인지 확인한다.
+
+```powershell
+docker --version
+docker compose version
+docker info
+```
+
+## 최초 설정
+
+저장소 루트에서 실행한다.
+
+```powershell
+npm.cmd install
+Copy-Item .env.example .env
+npm.cmd run infra:up
+npm.cmd run prisma:deploy
+npm.cmd run prisma:seed
+```
+
+저장소에는 개발용 `.env`가 이미 생성될 수 있다. 이 경우 덮어쓰지 말고 값을 확인한다. `.env`의 로컬 기본 비밀번호는 개발 전용이며 운영 환경에서 사용하면 안 된다.
+
+초기 seed는 강의 6개와 문제 7개를 공개 상태로 넣는다. 각 문제에는 기준 코드, 공개 예제 1개, 개발 검증용 숨김 테스트 3개가 포함된다.
+
+## 개발 서버
+
+터미널을 세 개 열어 각각 실행한다.
+
+```powershell
+npm.cmd run dev:web
+```
+
+```powershell
+npm.cmd run dev:api
+```
+
+```powershell
+npm.cmd run dev:worker
+```
+
+- Web: `http://127.0.0.1:3000`
+- API: `http://127.0.0.1:3001/api/v1`
+- Swagger: `http://127.0.0.1:3001/api/docs`
+- 생존 확인: `GET /api/v1/health/live`
+- DB/Redis 준비 확인: `GET /api/v1/health/ready`
+- Worker: Outbox 전달, Redis Queue 소비, 개발용 Fake Provider 판정
+
+## CSRF가 필요한 요청
+
+브라우저 클라이언트는 먼저 `GET /api/v1/auth/csrf`를 credentials 포함으로 호출한다. 응답과 함께 받은 `cppstudy_csrf` 쿠키 값을 변경 요청의 `x-csrf-token` 헤더에 넣는다.
+
+```text
+Cookie: cppstudy_csrf=<token>
+x-csrf-token: <token>
+Origin: http://127.0.0.1:3000
+```
+
+세션 쿠키 `cppstudy_session`은 HttpOnly이므로 JavaScript에서 읽지 않는다.
+
+## 관리자 계정
+
+`.env`의 `ADMIN_EMAIL`, `ADMIN_NICKNAME`을 원하는 로컬 값으로 바꾼 다음 실행한다.
+
+```powershell
+npm.cmd run admin:create
+```
+
+비밀번호는 터미널에서 숨김 입력으로 받고 Argon2id 해시만 DB에 저장한다.
+
+## 검증 명령
+
+```powershell
+npm.cmd run prisma:generate
+npm.cmd run typecheck
+npm.cmd test
+npm.cmd run build
+npm.cmd audit --omit=dev
+```
+
+## 인프라 관리
+
+```powershell
+npm.cmd run infra:status
+npm.cmd run infra:logs
+npm.cmd run infra:down
+```
+
+`infra:down`은 컨테이너를 내리지만 named volume은 보존한다. DB 데이터를 삭제하는 명령은 안전을 위해 npm script로 제공하지 않는다.
+
+## 아직 연결되지 않은 범위
+
+- 코드 초안과 관리자 편집 화면은 아직 브라우저 localStorage를 사용한다.
+- Outbox Dispatcher와 BullMQ 실행·제출 소비자는 구현되었으며 개발 환경에서는 Fake Provider를 사용한다.
+- Judge0 설치·실행 어댑터와 실제 C++ 컴파일은 아직 연결되지 않았다.
+- Docker가 없는 환경에서는 DB migration, seed, API 통합 시험을 실행할 수 없다.

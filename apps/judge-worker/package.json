@@ -1,0 +1,26 @@
+{
+  "name": "@cppstudy/judge-worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "npm run build --workspace @cppstudy/judge-domain && tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "start:dev": "npm run build --workspace @cppstudy/judge-domain && tsx watch src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "@cppstudy/judge-domain": "0.1.0",
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "bullmq": "5.61.0",
+    "dotenv": "17.2.3",
+    "ioredis": "5.8.2",
+    "pg": "8.16.3"
+  },
+  "devDependencies": {
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vitest": "5.0.2"
+  }
+}

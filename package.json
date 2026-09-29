@@ -1,0 +1,38 @@
+{
+  "name": "cppstudy",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "postinstall": "prisma generate",
+    "build": "npm run prisma:generate && npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev:web": "npm run dev --workspace @cppstudy/web",
+    "dev:api": "npm run start:dev --workspace @cppstudy/api",
+    "dev:worker": "npm run start:dev --workspace @cppstudy/judge-worker",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:seed": "prisma db seed",
+    "admin:create": "npm run admin:create --workspace @cppstudy/api",
+    "infra:up": "docker compose up -d postgres redis",
+    "infra:down": "docker compose down",
+    "infra:status": "docker compose ps",
+    "infra:logs": "docker compose logs -f postgres redis"
+  },
+  "devDependencies": {
+    "@prisma/adapter-pg": "7.10.0",
+    "@types/node": "26.6.2",
+    "dotenv": "17.2.3",
+    "prisma": "7.10.0",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
