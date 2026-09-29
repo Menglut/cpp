@@ -49,6 +49,7 @@ export class CreateLessonCategoryDto {
 }
 
 export class UpdateLessonCategoryDto {
+  @IsOptional() @IsString() @Length(1, 100) slug?: string;
   @IsOptional() @IsString() @Length(1, 200) title?: string;
   @IsOptional() @IsString() @MaxLength(500) summary?: string;
   @IsOptional() @IsInt() @Min(0) order?: number;

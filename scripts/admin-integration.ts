@@ -76,7 +76,7 @@ async function main() {
     lessons: Array<{ id: string }>;
     problems: Array<{ id: string }>;
     categories: Array<{ id: string }>;
-    lessonCategories: Array<{ id: string }>;
+    lessonCategories: Array<{ id: string; slug: string }>;
   }>("/admin/content");
   if (!content.lessonCategories[0])
     throw new Error("학습 카테고리가 없습니다.");
@@ -98,6 +98,38 @@ async function main() {
     201,
   );
   lessonCategoryId = lessonCategory.id;
+  const duplicateSlugResponse = await api<{
+    error: { code: string };
+  }>(
+    `/admin/lesson-categories/${lessonCategoryId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ slug: content.lessonCategories[0].slug }),
+    },
+    409,
+  );
+  if (
+    duplicateSlugResponse.error.code !== "LESSON_CATEGORY_SLUG_ALREADY_EXISTS"
+  ) {
+    throw new Error("중복 학습 카테고리 Slug 오류 코드가 올바르지 않습니다.");
+  }
+  const updatedCategorySlug = `integration-category-updated-${suffix}`;
+  const updatedCategory = await api<{ slug: string; title: string }>(
+    `/admin/lesson-categories/${lessonCategoryId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        slug: updatedCategorySlug,
+        title: "수정된 통합 테스트 카테고리",
+      }),
+    },
+  );
+  if (
+    updatedCategory.slug !== updatedCategorySlug ||
+    updatedCategory.title !== "수정된 통합 테스트 카테고리"
+  ) {
+    throw new Error("학습 카테고리 Slug 또는 이름이 수정되지 않았습니다.");
+  }
   await api(
     `/admin/lesson-categories/${lessonCategoryId}/publish`,
     { method: "POST" },
@@ -106,7 +138,7 @@ async function main() {
   const catalog = await api<{ categories: Array<{ id: string }> }>("/lessons");
   if (!catalog.categories.some((item) => item.id === lessonCategoryId))
     throw new Error("공개 학습 카테고리가 목록에 없습니다.");
-  process.stdout.write("✓ 학습 카테고리 생성 및 공개\n");
+  process.stdout.write("✓ 학습 카테고리 생성, 수정 및 공개\n");
 
   const image = new FormData();
   image.append("altText", "통합 테스트 이미지");

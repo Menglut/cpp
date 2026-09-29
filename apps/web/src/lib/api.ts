@@ -524,7 +524,7 @@ export function createAdminLessonCategory(input: AdminLessonCategoryInput) {
 
 export function updateAdminLessonCategory(
   id: string,
-  input: Omit<AdminLessonCategoryInput, "slug">,
+  input: AdminLessonCategoryInput,
 ) {
   return request<AdminContent["lessonCategories"][number]>(
     `/admin/lesson-categories/${encodeURIComponent(id)}`,

@@ -366,6 +366,21 @@ export class AdminService {
   ) {
     await this.requireLessonCategory(id);
     return this.prisma.transaction(async (tx) => {
+      const current = await tx.lessonCategory.findUniqueOrThrow({
+        where: { id },
+      });
+      if (
+        dto.slug &&
+        (await tx.lessonCategory.findFirst({
+          where: { slug: dto.slug, id: { not: id } },
+          select: { id: true },
+        }))
+      ) {
+        throw new ConflictException({
+          code: "LESSON_CATEGORY_SLUG_ALREADY_EXISTS",
+          message: "이미 사용 중인 카테고리 Slug입니다.",
+        });
+      }
       const category = await tx.lessonCategory.update({
         where: { id },
         data: dto,
@@ -376,6 +391,12 @@ export class AdminService {
           action: "LESSON_CATEGORY_UPDATE",
           targetType: "LessonCategory",
           targetId: id,
+          metadata: {
+            previousSlug: current.slug,
+            slug: category.slug,
+            previousTitle: current.title,
+            title: category.title,
+          },
         },
       });
       return category;

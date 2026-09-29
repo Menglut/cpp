@@ -1346,6 +1346,7 @@ function LessonCategoryManager({
             () =>
               selected
                 ? updateAdminLessonCategory(selected.id, {
+                    slug: slug.trim(),
                     title: title.trim(),
                     summary: summary.trim(),
                     order: numberValue(order, "표시 순서"),
@@ -1371,11 +1372,14 @@ function LessonCategoryManager({
             Slug
             <input
               required
-              disabled={Boolean(selected) || busy}
+              disabled={busy}
               value={slug}
               onChange={(event) => setSlug(event.target.value)}
               placeholder="arrays"
             />
+            {selected && (
+              <small>카테고리 식별자입니다. 중복되지 않게 입력해 주세요.</small>
+            )}
           </label>
           <label>
             표시 순서
