@@ -378,12 +378,12 @@ type ExecutionResult = {
 
 ### 15.2 백엔드 착수 시 바로 검증할 항목
 
-- [ ] 루트 npm workspace와 NestJS API가 함께 빌드된다.
-- [ ] PostgreSQL migration과 seed를 빈 DB에서 재현할 수 있다.
+- [x] 루트 npm workspace와 NestJS API가 함께 빌드된다.
+- [x] PostgreSQL migration과 seed를 빈 DB에서 재현할 수 있다.
 - [ ] 회원가입, 로그인, 로그아웃과 세션 폐기가 동작한다.
 - [ ] 일반 사용자의 관리자 API와 타인 제출 접근이 거절된다.
 - [ ] Outbox 이벤트가 Redis 장애 후 재전달된다.
-- [ ] Judge0 이미지의 GCC 버전과 언어 ID를 기록한다.
+- [x] Judge0 이미지의 GCC 버전과 언어 ID를 기록한다.
 - [ ] 알려진 fixture로 AC/WA/CE/RE/TLE/MLE/OLE를 확인한다.
 - [ ] 무한 루프와 자원 폭주가 실행 호스트 밖으로 영향을 주지 않는다.
 
@@ -401,3 +401,4 @@ type ExecutionResult = {
 | 날짜 | 버전 | 내용 |
 |---|---|---|
 | 2026-09-28 | 1.0 | MVP 기술 스택, 인증, 데이터, 큐, Judge0, C++17 판정 및 운영 기본 정책 확정 |
+| 2026-09-29 | 1.1 | 관리자 API 연동, 문제 버전별 제목·난이도 보존, 검증 큐, 관리자 통합 시험 절차 추가 |

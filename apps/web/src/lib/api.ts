@@ -114,6 +114,96 @@ export type LearningProgress = {
   submissionCount: number;
 };
 
+export type ContentStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
+export type ValidationStatus =
+  "PENDING" | "RUNNING" | "PASSED" | "FAILED" | "SYSTEM_ERROR";
+
+export type AdminContent = {
+  lessons: Array<{
+    id: string;
+    slug: string;
+    title: string;
+    status: ContentStatus;
+    order: number;
+    updatedAt: string;
+  }>;
+  problems: Array<{
+    id: string;
+    number: number;
+    title: string;
+    difficulty: number;
+    status: ContentStatus;
+    updatedAt: string;
+    currentVersionId: string | null;
+    editableVersionId: string | null;
+    editableVersion: number | null;
+  }>;
+  categories: Array<{ id: string; slug: string; name: string }>;
+};
+
+export type AdminLesson = {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  body: string;
+  order: number;
+  status: ContentStatus;
+  publishedAt: string | null;
+  problems: Array<{ problemId: string; order: number }>;
+};
+
+export type AdminProblemVersion = {
+  id: string;
+  version: number;
+  title: string;
+  difficulty: number;
+  statement: string;
+  inputDescription: string;
+  outputDescription: string;
+  constraints: string;
+  comparator: "TOKEN" | "EXACT";
+  allowFinalNewline: boolean;
+  timeLimitMs: number;
+  memoryLimitKiB: number;
+  starterCode: string;
+  referenceSource: string | null;
+  validatedAt: string | null;
+  publishedAt: string | null;
+  testCases: Array<{
+    id: string;
+    position: number;
+    visibility: "EXAMPLE" | "HIDDEN";
+    input: string;
+    expectedOutput: string;
+    explanation: string | null;
+  }>;
+  validations?: Array<AdminValidation>;
+};
+
+export type AdminProblem = {
+  id: string;
+  number: number;
+  title: string;
+  difficulty: number;
+  status: ContentStatus;
+  currentVersionId: string | null;
+  editable: boolean;
+  editableVersion: AdminProblemVersion | null;
+  categoryIds: string[];
+  lessonIds: string[];
+};
+
+export type AdminValidation = {
+  id: string;
+  problemVersionId: string;
+  status: ValidationStatus;
+  diagnostic: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+};
+
 type AuthResponse = { user: ApiUser };
 type ApiErrorBody = {
   message?: string | string[];
@@ -297,5 +387,188 @@ export function setLessonCompletion(slug: string, completed: boolean) {
   return request<{ slug: string; completed: boolean }>(
     `/users/me/lessons/${encodeURIComponent(slug)}/completion`,
     { method: "PUT", body: JSON.stringify({ completed }) },
+  );
+}
+
+export function listAdminContent() {
+  return request<AdminContent>("/admin/content");
+}
+
+export function getAdminLesson(id: string) {
+  return request<AdminLesson>(`/admin/lessons/${encodeURIComponent(id)}`);
+}
+
+export function getAdminProblem(id: string) {
+  return request<AdminProblem>(`/admin/problems/${encodeURIComponent(id)}`);
+}
+
+export function createAdminLesson(input: {
+  slug: string;
+  title: string;
+  summary: string;
+  body: string;
+  order: number;
+}) {
+  return request<AdminLesson>("/admin/lessons", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateAdminLesson(
+  id: string,
+  input: Omit<Parameters<typeof createAdminLesson>[0], "slug">,
+) {
+  return request<AdminLesson>(`/admin/lessons/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function setAdminLessonProblems(id: string, problemIds: string[]) {
+  return request<{ success: true }>(
+    `/admin/lessons/${encodeURIComponent(id)}/problems`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        problems: problemIds.map((problemId, order) => ({ problemId, order })),
+      }),
+    },
+  );
+}
+
+export function publishAdminLesson(id: string) {
+  return request<AdminLesson>(
+    `/admin/lessons/${encodeURIComponent(id)}/publish`,
+    { method: "POST" },
+  );
+}
+
+export function archiveAdminLesson(id: string) {
+  return request<AdminLesson>(`/admin/lessons/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export function restoreAdminLesson(id: string) {
+  return request<AdminLesson>(
+    `/admin/lessons/${encodeURIComponent(id)}/restore`,
+    { method: "POST" },
+  );
+}
+
+export type AdminProblemInput = {
+  number?: number;
+  title: string;
+  difficulty: number;
+  statement: string;
+  inputDescription: string;
+  outputDescription: string;
+  constraints: string;
+  comparator: "TOKEN" | "EXACT";
+  allowFinalNewline: boolean;
+  timeLimitMs: number;
+  memoryLimitKiB: number;
+  starterCode: string;
+  referenceSource: string;
+};
+
+export function createAdminProblem(
+  input: AdminProblemInput & { number: number },
+) {
+  return request<{ id: string; currentVersion: AdminProblemVersion }>(
+    "/admin/problems",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function updateAdminProblemVersion(
+  id: string,
+  input: AdminProblemInput,
+) {
+  const { number: _number, ...body } = input;
+  return request<AdminProblemVersion>(
+    `/admin/problem-versions/${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export function createAdminProblemVersion(id: string) {
+  return request<AdminProblemVersion>(
+    `/admin/problems/${encodeURIComponent(id)}/versions`,
+    { method: "POST" },
+  );
+}
+
+export function setAdminProblemRelations(
+  id: string,
+  categoryIds: string[],
+  lessonIds: string[],
+) {
+  return request<{ success: true }>(
+    `/admin/problems/${encodeURIComponent(id)}/relations`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ categoryIds, lessonIds }),
+    },
+  );
+}
+
+export function setAdminProblemTests(
+  versionId: string,
+  testCases: Array<{
+    position: number;
+    visibility: "EXAMPLE" | "HIDDEN";
+    input: string;
+    expectedOutput: string;
+    explanation?: string;
+  }>,
+) {
+  return request<{ success: true }>(
+    `/admin/problem-versions/${encodeURIComponent(versionId)}/test-cases`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ testCases }),
+    },
+  );
+}
+
+export function requestAdminProblemValidation(versionId: string) {
+  return request<{ validationId: string; status: ValidationStatus }>(
+    `/admin/problem-versions/${encodeURIComponent(versionId)}/validate`,
+    { method: "POST" },
+  );
+}
+
+export function getAdminProblemValidation(id: string) {
+  return request<AdminValidation>(
+    `/admin/problem-validations/${encodeURIComponent(id)}`,
+  );
+}
+
+export function publishAdminProblemVersion(versionId: string) {
+  return request<{ id: string; status: ContentStatus }>(
+    `/admin/problem-versions/${encodeURIComponent(versionId)}/publish`,
+    { method: "POST" },
+  );
+}
+
+export function archiveAdminProblem(id: string) {
+  return request<{ id: string; status: ContentStatus }>(
+    `/admin/problems/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function restoreAdminProblem(id: string) {
+  return request<{ id: string; status: ContentStatus }>(
+    `/admin/problems/${encodeURIComponent(id)}/restore`,
+    { method: "POST" },
   );
 }

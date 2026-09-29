@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Param, Patch, Post, Put } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+} from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../common/current-user.decorator";
 import type { AuthenticatedUser } from "../common/request-context";
@@ -10,6 +19,7 @@ import {
   CreateProblemDto,
   LinkLessonProblemsDto,
   SaveTestCasesDto,
+  SetProblemRelationsDto,
   UpdateLessonDto,
   UpdateProblemDto,
 } from "./dto/admin.dto";
@@ -20,13 +30,40 @@ import {
 export class AdminController {
   constructor(private readonly admin: AdminService) {}
 
+  @Get("content")
+  listContent() {
+    return this.admin.listContent();
+  }
+
+  @Get("lessons/:id")
+  getLesson(@Param("id") id: string) {
+    return this.admin.getLesson(id);
+  }
+
+  @Get("problems/:id")
+  getProblem(@Param("id") id: string) {
+    return this.admin.getProblem(id);
+  }
+
+  @Get("problem-validations/:id")
+  getValidation(@Param("id") id: string) {
+    return this.admin.getValidation(id);
+  }
+
   @Post("lessons")
-  createLesson(@Body() dto: CreateLessonDto, @CurrentUser() user: AuthenticatedUser) {
+  createLesson(
+    @Body() dto: CreateLessonDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.admin.createLesson(dto, user);
   }
 
   @Patch("lessons/:id")
-  updateLesson(@Param("id") id: string, @Body() dto: UpdateLessonDto, @CurrentUser() user: AuthenticatedUser) {
+  updateLesson(
+    @Param("id") id: string,
+    @Body() dto: UpdateLessonDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.admin.updateLesson(id, dto, user);
   }
 
@@ -40,18 +77,70 @@ export class AdminController {
   }
 
   @Delete("lessons/:id")
-  archiveLesson(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+  archiveLesson(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.admin.archiveLesson(id, user);
   }
 
+  @Post("lessons/:id/publish")
+  publishLesson(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.admin.publishLesson(id, user);
+  }
+
+  @Post("lessons/:id/restore")
+  restoreLesson(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.admin.restoreLesson(id, user);
+  }
+
   @Post("problems")
-  createProblem(@Body() dto: CreateProblemDto, @CurrentUser() user: AuthenticatedUser) {
+  createProblem(
+    @Body() dto: CreateProblemDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.admin.createProblem(dto, user);
   }
 
   @Patch("problems/:id")
-  updateProblem(@Param("id") id: string, @Body() dto: UpdateProblemDto, @CurrentUser() user: AuthenticatedUser) {
+  updateProblem(
+    @Param("id") id: string,
+    @Body() dto: UpdateProblemDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.admin.updateProblem(id, dto, user);
+  }
+
+  @Post("problems/:id/versions")
+  createProblemVersion(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.admin.createProblemVersion(id, user);
+  }
+
+  @Patch("problem-versions/:id")
+  updateProblemVersion(
+    @Param("id") id: string,
+    @Body() dto: UpdateProblemDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.admin.updateProblemVersion(id, dto, user);
+  }
+
+  @Put("problems/:id/relations")
+  setProblemRelations(
+    @Param("id") id: string,
+    @Body() dto: SetProblemRelationsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.admin.setProblemRelations(id, dto, user);
   }
 
   @Put("problem-versions/:id/test-cases")
@@ -74,7 +163,18 @@ export class AdminController {
   }
 
   @Delete("problems/:id")
-  archiveProblem(@Param("id") id: string, @CurrentUser() user: AuthenticatedUser) {
+  archiveProblem(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.admin.archiveProblem(id, user);
+  }
+
+  @Post("problems/:id/restore")
+  restoreProblem(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.admin.restoreProblem(id, user);
   }
 }

@@ -678,9 +678,9 @@ export default function Studio() {
       </header>
       {path !== "/" && (
         <div className="prototype-strip">
-          <span className="dot" /> 프론트엔드 프로토타입{" "}
-          <span className="strip-divider">|</span> 인증은 API 연결 완료,
-          실행·채점은 데모이며, 데이터는 이 브라우저에 저장됩니다.
+          <span className="dot" /> C++ 학습 플랫폼 MVP{" "}
+          <span className="strip-divider">|</span> 인증·콘텐츠·실행·제출은 API에
+          연결되어 있으며 코드 초안만 이 브라우저에 저장됩니다.
         </div>
       )}
       <main
@@ -695,7 +695,7 @@ export default function Studio() {
         <Link href="/" className="footer-brand">
           CppStudy<span>한 줄의 코드, 한 걸음의 성장.</span>
         </Link>
-        <span>C++17 학습 공간 · Frontend prototype</span>
+        <span>C++17 학습 공간 · MVP</span>
       </footer>
       {toast && (
         <div className="toast" role="status">

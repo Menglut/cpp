@@ -17,13 +17,18 @@
 - [x] 강의 완료 및 학습 요약 `/users/me/progress` API 연결
 - [x] 제출·강의 완료용 `localStorage` 제거
 - [x] 개발용 Fake Provider 폴링 흐름 연결
+- [x] Judge0 Provider 선택 및 실제 C++ 기준 코드 검증 연결
+- [x] 관리자 콘텐츠 목록·상세·저장 API 연결
+- [x] 관리자 문제 테스트·카테고리·강의 연결 저장
+- [x] 관리자 기준 코드 검증·공개·보관·복원 연결
+- [x] 관리자 콘텐츠용 `localStorage` 제거
 
 ## 다음 작업에서 진행
 
-1. Fake Provider를 실제 Judge0 Provider로 교체
-2. 관리자 화면을 `/admin` API로 교체
-3. 코드 초안의 서버 저장 여부 확정
-4. 인증 만료 공통 처리와 DB/Redis 통합·E2E 테스트 추가
+1. 코드 초안의 서버 저장 여부 확정
+2. 인증 만료 공통 처리와 브라우저 E2E 테스트 추가
+3. Redis 장애 후 Outbox 재전달과 다중 Worker 경쟁 검증
+4. Judge0 판정 fixture와 자원 격리 검증 확대
 
 ## 실행 전제
 
@@ -33,7 +38,7 @@
 
 ## 로컬 DB 적용 상태
 
-코드와 seed 정비는 완료했지만 2026-09-29 최종 검증 시 로컬 PostgreSQL(`127.0.0.1:5432`)이 중지되어 변경된 문제 seed의 DB 반영은 보류되었다. Docker Desktop을 실행한 뒤 아래 명령을 순서대로 한 번 실행한다.
+2026-09-29 기준 PostgreSQL과 Redis가 healthy이며 migration 4개와 초기 seed가 적용되어 있다. 새 환경에서는 아래 명령을 순서대로 실행한다.
 
 ```powershell
 npm.cmd run infra:up
@@ -42,4 +47,4 @@ npm.cmd run prisma:seed
 
 적용 후 `GET /api/v1/problems?limit=100`의 `items`가 7개인지 확인한다.
 
-현재 강의, 문제, 실행·제출 요청, 제출 기록과 강의 완료 상태는 서버 API와 PostgreSQL을 사용한다. 실행 결과는 개발용 Fake Provider가 만들며 실제 C++ 컴파일은 Judge0 연결 후 제공한다. 관리자 화면과 코드 초안은 아직 프론트엔드 로컬 데이터를 사용한다.
+현재 강의, 문제, 관리자 콘텐츠, 실행·제출 요청, 제출 기록과 강의 완료 상태는 서버 API와 PostgreSQL을 사용한다. 실행 Provider는 `.env`의 `EXECUTION_PROVIDER`로 Fake 또는 Judge0를 선택한다. 문제 풀이 코드 초안만 브라우저 `localStorage`를 사용한다.

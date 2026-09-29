@@ -1,110 +1,432 @@
 "use client";
+
 import { useEffect, useState } from "react";
-import { Check, Shield, Plus, Archive, RotateCcw } from "lucide-react";
-import { lessons, problems, starter } from "@/lib/data";
-import Markdown from "./markdown";
+import { Archive, Check, Plus, RotateCcw, Shield } from "lucide-react";
+import {
+  ApiError,
+  archiveAdminLesson,
+  archiveAdminProblem,
+  createAdminLesson,
+  createAdminProblem,
+  createAdminProblemVersion,
+  getAdminLesson,
+  getAdminProblem,
+  getAdminProblemValidation,
+  listAdminContent,
+  publishAdminLesson,
+  publishAdminProblemVersion,
+  requestAdminProblemValidation,
+  restoreAdminLesson,
+  restoreAdminProblem,
+  setAdminLessonProblems,
+  setAdminProblemRelations,
+  setAdminProblemTests,
+  updateAdminLesson,
+  updateAdminProblemVersion,
+  type AdminContent,
+  type ContentStatus,
+  type ValidationStatus,
+} from "@/lib/api";
+import { starter } from "@/lib/data";
 import ConfirmDialog from "./confirm-dialog";
-type TestCase = { id: string; input: string; output: string; sample: boolean };
+import Markdown from "./markdown";
+
+type TestCase = {
+  id: string;
+  input: string;
+  output: string;
+  sample: boolean;
+  explanation: string;
+};
+
 type ContentDraft = {
   id: string;
-  kind: string;
+  versionId: string;
+  kind: "문제" | "강의";
+  status: ContentStatus;
+  editable: boolean;
   title: string;
   body: string;
-  related: string;
-  state: "DRAFT" | "ARCHIVED";
+  slug: string;
+  summary: string;
+  order: string;
+  number: string;
   input: string;
   output: string;
   constraints: string;
   level: string;
-  category: string;
   time: string;
   memory: string;
-  checker: string;
-  tests: TestCase[];
+  checker: "TOKEN" | "EXACT";
+  starterCode: string;
   reference: string;
-  links: string[];
+  tests: TestCase[];
+  categoryIds: string[];
+  lessonIds: string[];
+  problemIds: string[];
+  validatedAt: string | null;
+  validationStatus: ValidationStatus | null;
+  validationDiagnostic: string | null;
 };
-const blank = (): ContentDraft => ({
+
+const blank = (kind: "문제" | "강의" = "문제"): ContentDraft => ({
   id: "",
-  kind: "문제",
+  versionId: "",
+  kind,
+  status: "DRAFT",
+  editable: true,
   title: "",
   body: "",
-  related: "io",
-  state: "DRAFT",
+  slug: "",
+  summary: "",
+  order: "0",
+  number: "",
   input: "",
   output: "",
   constraints: "",
   level: "1",
-  category: "입출력",
   time: "1000",
   memory: "128",
   checker: "TOKEN",
-  tests: [],
+  starterCode: starter,
   reference: starter,
-  links: [],
+  tests: [],
+  categoryIds: [],
+  lessonIds: [],
+  problemIds: [],
+  validatedAt: null,
+  validationStatus: null,
+  validationDiagnostic: null,
 });
-export default function Admin({ notify }: { notify: (s: string) => void }) {
-  const [drafts, setDrafts] = useState<ContentDraft[]>([]),
-    [draft, setDraft] = useState<ContentDraft>(blank),
-    [tab, setTab] = useState("content"),
-    [preview, setPreview] = useState(false),
-    [archive, setArchive] = useState(false);
-  useEffect(() => {
+
+const statusText: Record<ContentStatus, string> = {
+  DRAFT: "초안",
+  PUBLISHED: "공개",
+  ARCHIVED: "보관됨",
+};
+
+export default function Admin({
+  notify,
+}: {
+  notify: (message: string) => void;
+}) {
+  const [content, setContent] = useState<AdminContent | null>(null);
+  const [draft, setDraft] = useState<ContentDraft>(() => blank());
+  const [tab, setTab] = useState("content");
+  const [preview, setPreview] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadContent = async () => {
+    setLoading(true);
     try {
-      const rows = JSON.parse(
-        localStorage.getItem("cppstudy:content-v1") || "[]",
-      );
-      if (Array.isArray(rows)) setDrafts(rows);
-    } catch {
-      notify("저장된 초안을 읽지 못했어요. 새 초안을 작성할 수 있습니다.");
+      setContent(await listAdminContent());
+      setError(null);
+    } catch (reason) {
+      setError(messageOf(reason));
+    } finally {
+      setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    void loadContent();
   }, []);
+
   function change<K extends keyof ContentDraft>(
     key: K,
     value: ContentDraft[K],
   ) {
-    setDraft((d) => ({ ...d, [key]: value }));
+    setDraft((current) => ({ ...current, [key]: value }));
   }
-  function persist(nextDraft: ContentDraft) {
-    const d = { ...nextDraft, id: nextDraft.id || crypto.randomUUID() };
-    const next = [d, ...drafts.filter((x) => x.id !== d.id)];
+
+  async function selectLesson(id: string) {
+    setBusy(true);
     try {
-      localStorage.setItem("cppstudy:content-v1", JSON.stringify(next));
-      setDrafts(next);
-      setDraft(d);
-      notify("콘텐츠 초안을 브라우저에 저장했어요.");
-    } catch {
-      notify("초안 저장 실패 · 브라우저 저장 공간을 확인하세요.");
+      const lesson = await getAdminLesson(id);
+      setDraft({
+        ...blank("강의"),
+        id: lesson.id,
+        status: lesson.status,
+        title: lesson.title,
+        body: lesson.body,
+        slug: lesson.slug,
+        summary: lesson.summary,
+        order: String(lesson.order),
+        problemIds: lesson.problems.map((item) => item.problemId),
+      });
+      setTab("content");
+      setPreview(false);
+      setError(null);
+    } catch (reason) {
+      notify(messageOf(reason));
+    } finally {
+      setBusy(false);
     }
   }
-  const field = (key: "input" | "output" | "constraints", label: string) => (
-    <label>
-      {label}
-      <textarea
-        rows={2}
-        value={draft[key]}
-        onChange={(e) => change(key, e.target.value)}
-      />
-    </label>
-  );
+
+  async function selectProblem(id: string) {
+    setBusy(true);
+    try {
+      const problem = await getAdminProblem(id);
+      const version = problem.editableVersion;
+      if (!version) throw new Error("편집할 문제 버전이 없습니다.");
+      const latestValidation = version.validations?.[0];
+      setDraft({
+        ...blank("문제"),
+        id: problem.id,
+        versionId: version.id,
+        status: problem.status,
+        editable: problem.editable,
+        title: problem.title,
+        body: version.statement,
+        number: String(problem.number),
+        input: version.inputDescription,
+        output: version.outputDescription,
+        constraints: version.constraints,
+        level: String(problem.difficulty),
+        time: String(version.timeLimitMs),
+        memory: String(Math.max(1, Math.round(version.memoryLimitKiB / 1024))),
+        checker: version.comparator,
+        starterCode: version.starterCode,
+        reference: version.referenceSource ?? "",
+        tests: version.testCases.map((test) => ({
+          id: test.id,
+          input: test.input,
+          output: test.expectedOutput,
+          sample: test.visibility === "EXAMPLE",
+          explanation: test.explanation ?? "",
+        })),
+        categoryIds: problem.categoryIds,
+        lessonIds: problem.lessonIds,
+        validatedAt: version.validatedAt,
+        validationStatus:
+          latestValidation?.status ?? (version.validatedAt ? "PASSED" : null),
+        validationDiagnostic: latestValidation?.diagnostic ?? null,
+      });
+      setTab("content");
+      setPreview(false);
+      setError(null);
+    } catch (reason) {
+      notify(messageOf(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveDraft(): Promise<ContentDraft | null> {
+    if (!draft.editable) {
+      notify("공개 버전은 수정할 수 없습니다. 새 버전을 먼저 만들어 주세요.");
+      return null;
+    }
+    setBusy(true);
+    try {
+      if (draft.kind === "강의") {
+        const input = {
+          title: draft.title.trim(),
+          summary: draft.summary.trim(),
+          body: draft.body,
+          order: numberValue(draft.order, "표시 순서"),
+        };
+        const lesson = draft.id
+          ? await updateAdminLesson(draft.id, input)
+          : await createAdminLesson({ ...input, slug: draft.slug.trim() });
+        await setAdminLessonProblems(lesson.id, draft.problemIds);
+        await loadContent();
+        await selectLesson(lesson.id);
+        notify("강의 초안을 서버에 저장했습니다.");
+        return { ...draft, id: lesson.id };
+      }
+
+      const input = {
+        number: numberValue(draft.number, "문제 번호"),
+        title: draft.title.trim(),
+        difficulty: numberValue(draft.level, "난이도"),
+        statement: draft.body,
+        inputDescription: draft.input,
+        outputDescription: draft.output,
+        constraints: draft.constraints,
+        comparator: draft.checker,
+        allowFinalNewline: true,
+        timeLimitMs: numberValue(draft.time, "시간 제한"),
+        memoryLimitKiB: numberValue(draft.memory, "메모리 제한") * 1024,
+        starterCode: draft.starterCode,
+        referenceSource: draft.reference,
+      };
+      let problemId = draft.id;
+      let versionId = draft.versionId;
+      if (!problemId) {
+        const created = await createAdminProblem({
+          ...input,
+          number: input.number,
+        });
+        problemId = created.id;
+        versionId = created.currentVersion.id;
+      } else {
+        await updateAdminProblemVersion(versionId, input);
+      }
+      await setAdminProblemTests(
+        versionId,
+        draft.tests.map((test, index) => ({
+          position: index + 1,
+          visibility: test.sample ? "EXAMPLE" : "HIDDEN",
+          input: test.input,
+          expectedOutput: test.output,
+          explanation: test.explanation || undefined,
+        })),
+      );
+      await setAdminProblemRelations(
+        problemId,
+        draft.categoryIds,
+        draft.lessonIds,
+      );
+      await loadContent();
+      await selectProblem(problemId);
+      notify("문제 초안을 서버에 저장했습니다.");
+      return { ...draft, id: problemId, versionId };
+    } catch (reason) {
+      notify(messageOf(reason));
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function makeNewVersion() {
+    if (!draft.id) return;
+    setBusy(true);
+    try {
+      await createAdminProblemVersion(draft.id);
+      await loadContent();
+      await selectProblem(draft.id);
+      notify("공개 버전을 복사해 새 초안 버전을 만들었습니다.");
+    } catch (reason) {
+      notify(messageOf(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function validateProblem() {
+    const saved = await saveDraft();
+    const versionId = saved?.versionId || draft.versionId;
+    if (!saved || !versionId) return;
+    setBusy(true);
+    try {
+      const requested = await requestAdminProblemValidation(versionId);
+      change("validationStatus", requested.status);
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        await delay(1000);
+        const validation = await getAdminProblemValidation(
+          requested.validationId,
+        );
+        setDraft((current) => ({
+          ...current,
+          validationStatus: validation.status,
+          validationDiagnostic: validation.diagnostic,
+          validatedAt:
+            validation.status === "PASSED"
+              ? new Date().toISOString()
+              : current.validatedAt,
+        }));
+        if (["PASSED", "FAILED", "SYSTEM_ERROR"].includes(validation.status)) {
+          notify(validation.diagnostic ?? `검증 결과: ${validation.status}`);
+          return;
+        }
+      }
+      notify(
+        "검증이 계속 진행 중입니다. 잠시 후 문제를 다시 선택해 확인해 주세요.",
+      );
+    } catch (reason) {
+      notify(messageOf(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function publishCurrent() {
+    setBusy(true);
+    try {
+      if (draft.kind === "강의") {
+        if (!draft.id) throw new Error("강의를 먼저 저장해 주세요.");
+        await publishAdminLesson(draft.id);
+        await loadContent();
+        await selectLesson(draft.id);
+      } else {
+        if (!draft.versionId) throw new Error("문제를 먼저 저장해 주세요.");
+        await publishAdminProblemVersion(draft.versionId);
+        await loadContent();
+        await selectProblem(draft.id);
+      }
+      notify("콘텐츠를 공개했습니다.");
+    } catch (reason) {
+      notify(messageOf(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function archiveCurrent() {
+    setBusy(true);
+    try {
+      if (draft.kind === "강의") await archiveAdminLesson(draft.id);
+      else await archiveAdminProblem(draft.id);
+      await loadContent();
+      if (draft.kind === "강의") await selectLesson(draft.id);
+      else await selectProblem(draft.id);
+      setArchiveOpen(false);
+      notify("콘텐츠를 보관했습니다.");
+    } catch (reason) {
+      notify(messageOf(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restoreCurrent() {
+    setBusy(true);
+    try {
+      if (draft.kind === "강의") await restoreAdminLesson(draft.id);
+      else await restoreAdminProblem(draft.id);
+      await loadContent();
+      if (draft.kind === "강의") await selectLesson(draft.id);
+      else await selectProblem(draft.id);
+      notify("콘텐츠를 복원했습니다.");
+    } catch (reason) {
+      notify(messageOf(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const allItems = [
+    ...(content?.lessons.map((item) => ({ ...item, kind: "강의" as const })) ??
+      []),
+    ...(content?.problems.map((item) => ({ ...item, kind: "문제" as const })) ??
+      []),
+  ];
+
   return (
     <>
       <div className="eyebrow">CONTENT STUDIO</div>
       <div className="page-heading compact">
         <div>
           <h1>콘텐츠 관리</h1>
-          <p>강의와 문제를 다듬는 공간. 초안 작성부터 공개 전 검토까지.</p>
+          <p>서버에 초안을 저장하고 기준 코드 검증을 거쳐 공개합니다.</p>
         </div>
       </div>
       <div className="info-strip">
-        <Shield size={18} />
-        관리자 데모 · 모든 데이터는 브라우저에 저장됩니다. 실제 비공개 테스트나
-        운영 데이터는 입력하지 마세요.
+        <Shield size={18} /> 관리자 API 연결됨 · 숨김 테스트와 기준 코드는
+        관리자 권한으로만 조회됩니다.
       </div>
+      {error && <div className="auth-note">{error}</div>}
       <div className="admin-layout">
         <aside className="admin-list">
           <button
             className="button primary full"
+            disabled={busy}
             onClick={() => {
               setDraft(blank());
               setPreview(false);
@@ -114,50 +436,53 @@ export default function Admin({ notify }: { notify: (s: string) => void }) {
             새 콘텐츠 작성 <Plus size={15} />
           </button>
           <h3>
-            저장한 콘텐츠 <span>{drafts.length}</span>
+            서버 콘텐츠 <span>{allItems.length}</span>
           </h3>
-          {drafts.length ? (
-            drafts.map((d) => (
+          {loading ? (
+            <p className="small-muted">불러오는 중...</p>
+          ) : (
+            allItems.map((item) => (
               <button
-                className={
-                  "draft-item " + (draft.id === d.id ? "selected" : "")
+                className={`draft-item ${draft.id === item.id ? "selected" : ""}`}
+                key={`${item.kind}-${item.id}`}
+                disabled={busy}
+                onClick={() =>
+                  void (item.kind === "강의"
+                    ? selectLesson(item.id)
+                    : selectProblem(item.id))
                 }
-                key={d.id}
-                onClick={() => {
-                  setDraft(d);
-                  setPreview(false);
-                }}
               >
                 <small>
-                  {d.kind} · {d.state === "DRAFT" ? "초안" : "보관됨"}
+                  {item.kind} · {statusText[item.status]}
                 </small>
-                <strong>{d.title}</strong>
+                <strong>
+                  {item.kind === "문제" ? `${item.number}. ` : ""}
+                  {item.title}
+                </strong>
               </button>
             ))
-          ) : (
-            <p className="small-muted">첫 초안을 작성해 보세요.</p>
           )}
         </aside>
+
         <form
           className="admin-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            persist(draft);
+          onSubmit={(event) => {
+            event.preventDefault();
+            void saveDraft();
           }}
         >
           <div className="admin-heading">
             <h2>{draft.id ? "콘텐츠 수정" : "새 콘텐츠 작성"}</h2>
-            <span className="badge gray">
-              {draft.state === "ARCHIVED" ? "보관됨" : "비공개 초안"}
-            </span>
+            <span className="badge gray">{statusText[draft.status]}</span>
           </div>
           <div className="two-fields">
             <label>
               콘텐츠 유형
               <select
+                disabled={Boolean(draft.id) || busy}
                 value={draft.kind}
-                onChange={(e) => {
-                  change("kind", e.target.value);
+                onChange={(event) => {
+                  setDraft(blank(event.target.value as "문제" | "강의"));
                   setTab("content");
                 }}
               >
@@ -169,13 +494,66 @@ export default function Admin({ notify }: { notify: (s: string) => void }) {
               제목
               <input
                 required
-                maxLength={120}
+                maxLength={200}
+                disabled={!draft.editable || busy}
                 value={draft.title}
-                onChange={(e) => change("title", e.target.value)}
-                placeholder="콘텐츠 제목을 입력하세요"
+                onChange={(event) => change("title", event.target.value)}
               />
             </label>
           </div>
+
+          {draft.kind === "강의" ? (
+            <div className="two-fields">
+              <label>
+                Slug
+                <input
+                  required
+                  disabled={Boolean(draft.id) || busy}
+                  value={draft.slug}
+                  onChange={(event) => change("slug", event.target.value)}
+                />
+              </label>
+              <label>
+                표시 순서
+                <input
+                  type="number"
+                  min={0}
+                  disabled={busy}
+                  value={draft.order}
+                  onChange={(event) => change("order", event.target.value)}
+                />
+              </label>
+            </div>
+          ) : (
+            <div className="two-fields">
+              <label>
+                문제 번호
+                <input
+                  required
+                  type="number"
+                  min={1}
+                  disabled={Boolean(draft.id) || busy}
+                  value={draft.number}
+                  onChange={(event) => change("number", event.target.value)}
+                />
+              </label>
+              <label>
+                난이도
+                <select
+                  disabled={!draft.editable || busy}
+                  value={draft.level}
+                  onChange={(event) => change("level", event.target.value)}
+                >
+                  {[1, 2, 3, 4, 5].map((level) => (
+                    <option key={level} value={level}>
+                      단계 {level}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+
           <div className="admin-tabs">
             <button
               type="button"
@@ -203,16 +581,29 @@ export default function Admin({ notify }: { notify: (s: string) => void }) {
               </>
             )}
           </div>
+
           {tab === "content" && (
             <>
+              {draft.kind === "강의" && (
+                <label>
+                  요약
+                  <textarea
+                    rows={2}
+                    maxLength={500}
+                    disabled={busy}
+                    value={draft.summary}
+                    onChange={(event) => change("summary", event.target.value)}
+                  />
+                </label>
+              )}
               <div className="editor-toolbar">
                 <span className="small-muted">
-                  Markdown · 임의 HTML 및 스크립트는 표시하지 않습니다.
+                  Markdown · 원시 HTML과 스크립트는 실행하지 않습니다.
                 </span>
                 <button
                   className="text-button"
                   type="button"
-                  onClick={() => setPreview(!preview)}
+                  onClick={() => setPreview((value) => !value)}
                 >
                   {preview ? "편집하기" : "미리보기"}
                 </button>
@@ -229,148 +620,168 @@ export default function Admin({ notify }: { notify: (s: string) => void }) {
                   본문 (Markdown)
                   <textarea
                     rows={12}
+                    disabled={!draft.editable || busy}
                     value={draft.body}
-                    onChange={(e) => change("body", e.target.value)}
-                    placeholder={
-                      "## 학습 목표\n내용을 작성하세요.\n\n```cpp\n// 예제 코드\n```"
-                    }
+                    onChange={(event) => change("body", event.target.value)}
                   />
                 </label>
               )}
+
               {draft.kind === "문제" ? (
-                <label>
-                  연결 강의
-                  <select
-                    value={draft.related}
-                    onChange={(e) => change("related", e.target.value)}
-                  >
-                    {lessons.map((l) => (
-                      <option key={l.slug} value={l.slug}>
-                        {l.title}
-                      </option>
+                <>
+                  <fieldset className="linked-problems">
+                    <legend>연결 강의</legend>
+                    {content?.lessons.map((lesson) => (
+                      <label key={lesson.id}>
+                        <input
+                          type="checkbox"
+                          disabled={!draft.editable || busy}
+                          checked={draft.lessonIds.includes(lesson.id)}
+                          onChange={(event) =>
+                            change(
+                              "lessonIds",
+                              toggle(
+                                draft.lessonIds,
+                                lesson.id,
+                                event.target.checked,
+                              ),
+                            )
+                          }
+                        />
+                        {lesson.title}
+                      </label>
                     ))}
-                  </select>
-                </label>
+                  </fieldset>
+                  <fieldset className="linked-problems">
+                    <legend>카테고리</legend>
+                    {content?.categories.map((category) => (
+                      <label key={category.id}>
+                        <input
+                          type="checkbox"
+                          disabled={!draft.editable || busy}
+                          checked={draft.categoryIds.includes(category.id)}
+                          onChange={(event) =>
+                            change(
+                              "categoryIds",
+                              toggle(
+                                draft.categoryIds,
+                                category.id,
+                                event.target.checked,
+                              ),
+                            )
+                          }
+                        />
+                        {category.name}
+                      </label>
+                    ))}
+                  </fieldset>
+                </>
               ) : (
                 <fieldset className="linked-problems">
                   <legend>연결 문제</legend>
-                  {problems.map((p) => (
-                    <label key={p.id}>
+                  {content?.problems.map((problem) => (
+                    <label key={problem.id}>
                       <input
                         type="checkbox"
-                        checked={draft.links.includes(String(p.id))}
-                        onChange={(e) =>
+                        disabled={busy}
+                        checked={draft.problemIds.includes(problem.id)}
+                        onChange={(event) =>
                           change(
-                            "links",
-                            e.target.checked
-                              ? [...draft.links, String(p.id)]
-                              : draft.links.filter((x) => x !== String(p.id)),
+                            "problemIds",
+                            toggle(
+                              draft.problemIds,
+                              problem.id,
+                              event.target.checked,
+                            ),
                           )
                         }
                       />
-                      {p.id}. {p.title}
+                      {problem.number}. {problem.title}
                     </label>
                   ))}
                 </fieldset>
               )}
             </>
           )}
+
           {tab === "settings" && (
             <>
-              <div className="two-fields">
-                <label>
-                  난이도
-                  <select
-                    value={draft.level}
-                    onChange={(e) => change("level", e.target.value)}
-                  >
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <option key={n} value={n}>
-                        단계 {n}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  유형
-                  <select
-                    value={draft.category}
-                    onChange={(e) => change("category", e.target.value)}
-                  >
-                    {[
-                      "입출력",
-                      "변수",
-                      "조건문",
-                      "반복문",
-                      "배열",
-                      "함수",
-                      "STL",
-                    ].map((n) => (
-                      <option key={n}>{n}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              {field("input", "입력 형식")}
-              {field("output", "출력 형식")}
-              {field("constraints", "제약 조건")}
+              {textField(draft, change, "input", "입력 형식", busy)}
+              {textField(draft, change, "output", "출력 형식", busy)}
+              {textField(draft, change, "constraints", "제약 조건", busy)}
               <div className="two-fields">
                 <label>
                   시간 제한 (ms)
                   <input
                     type="number"
-                    min={1}
+                    min={100}
+                    max={10000}
+                    disabled={!draft.editable || busy}
                     value={draft.time}
-                    onChange={(e) => change("time", e.target.value)}
+                    onChange={(event) => change("time", event.target.value)}
                   />
                 </label>
                 <label>
                   메모리 제한 (MiB)
                   <input
                     type="number"
-                    min={1}
+                    min={16}
+                    max={512}
+                    disabled={!draft.editable || busy}
                     value={draft.memory}
-                    onChange={(e) => change("memory", e.target.value)}
+                    onChange={(event) => change("memory", event.target.value)}
                   />
                 </label>
               </div>
               <label>
                 출력 비교 규칙
                 <select
+                  disabled={!draft.editable || busy}
                   value={draft.checker}
-                  onChange={(e) => change("checker", e.target.value)}
+                  onChange={(event) =>
+                    change("checker", event.target.value as "TOKEN" | "EXACT")
+                  }
                 >
-                  <option value="TOKEN">
-                    TOKEN · 공백으로 분리한 토큰 비교
-                  </option>
-                  <option value="EXACT">
-                    EXACT · CRLF 정규화 후 정확히 비교
-                  </option>
+                  <option value="TOKEN">TOKEN · 공백 토큰 비교</option>
+                  <option value="EXACT">EXACT · 정확히 비교</option>
                 </select>
+              </label>
+              <label>
+                기본 코드
+                <textarea
+                  rows={8}
+                  disabled={!draft.editable || busy}
+                  value={draft.starterCode}
+                  onChange={(event) =>
+                    change("starterCode", event.target.value)
+                  }
+                />
               </label>
             </>
           )}
+
           {tab === "tests" && (
             <>
               <div className="auth-note">
-                UI 입력 테스트용입니다. 실제 숨김 테스트는 서버에서만
-                저장·관리해야 합니다.
+                공개 예제 1개와 숨김 테스트 3개 이상, 기준 코드가 있어야 검증할
+                수 있습니다.
               </div>
-              {draft.tests.map((t, i) => (
-                <div className="test-case" key={t.id}>
+              {draft.tests.map((test, index) => (
+                <div className="test-case" key={test.id}>
                   <div className="test-case-heading">
-                    <strong>테스트 {i + 1}</strong>
+                    <strong>테스트 {index + 1}</strong>
                     <label>
                       <input
                         type="checkbox"
-                        checked={t.sample}
-                        onChange={(e) =>
+                        disabled={!draft.editable || busy}
+                        checked={test.sample}
+                        onChange={(event) =>
                           change(
                             "tests",
-                            draft.tests.map((x) =>
-                              x.id === t.id
-                                ? { ...x, sample: e.target.checked }
-                                : x,
+                            draft.tests.map((item) =>
+                              item.id === test.id
+                                ? { ...item, sample: event.target.checked }
+                                : item,
                             ),
                           )
                         }
@@ -382,14 +793,15 @@ export default function Admin({ notify }: { notify: (s: string) => void }) {
                     <label>
                       입력
                       <textarea
-                        value={t.input}
-                        onChange={(e) =>
+                        disabled={!draft.editable || busy}
+                        value={test.input}
+                        onChange={(event) =>
                           change(
                             "tests",
-                            draft.tests.map((x) =>
-                              x.id === t.id
-                                ? { ...x, input: e.target.value }
-                                : x,
+                            draft.tests.map((item) =>
+                              item.id === test.id
+                                ? { ...item, input: event.target.value }
+                                : item,
                             ),
                           )
                         }
@@ -398,14 +810,15 @@ export default function Admin({ notify }: { notify: (s: string) => void }) {
                     <label>
                       기대 출력
                       <textarea
-                        value={t.output}
-                        onChange={(e) =>
+                        disabled={!draft.editable || busy}
+                        value={test.output}
+                        onChange={(event) =>
                           change(
                             "tests",
-                            draft.tests.map((x) =>
-                              x.id === t.id
-                                ? { ...x, output: e.target.value }
-                                : x,
+                            draft.tests.map((item) =>
+                              item.id === test.id
+                                ? { ...item, output: event.target.value }
+                                : item,
                             ),
                           )
                         }
@@ -417,6 +830,7 @@ export default function Admin({ notify }: { notify: (s: string) => void }) {
               <button
                 type="button"
                 className="button secondary"
+                disabled={!draft.editable || busy}
                 onClick={() =>
                   change("tests", [
                     ...draft.tests,
@@ -424,7 +838,8 @@ export default function Admin({ notify }: { notify: (s: string) => void }) {
                       id: crypto.randomUUID(),
                       input: "",
                       output: "",
-                      sample: true,
+                      sample: draft.tests.length === 0,
+                      explanation: "",
                     },
                   ])
                 }
@@ -436,68 +851,106 @@ export default function Admin({ notify }: { notify: (s: string) => void }) {
                 기준 정답 코드
                 <textarea
                   rows={9}
+                  disabled={!draft.editable || busy}
                   value={draft.reference}
-                  onChange={(e) => change("reference", e.target.value)}
+                  onChange={(event) => change("reference", event.target.value)}
                 />
               </label>
               <div className="auth-note">
-                기준 코드 검증 대기 · 실행 서버가 연결되지 않아 테스트 통과 및
-                공개 처리를 제공하지 않습니다.
+                검증 상태: {draft.validationStatus ?? "검증 전"}
+                {draft.validationDiagnostic
+                  ? ` · ${draft.validationDiagnostic}`
+                  : ""}
               </div>
             </>
           )}
+
           <div className="actions">
-            <button className="button primary" type="submit">
-              초안 저장
-              <Check size={15} />
+            <button
+              className="button primary"
+              type="submit"
+              disabled={!draft.editable || busy}
+            >
+              초안 저장 <Check size={15} />
             </button>
+            {draft.kind === "문제" && draft.id && !draft.editable && (
+              <button
+                type="button"
+                className="button secondary"
+                disabled={busy}
+                onClick={() => void makeNewVersion()}
+              >
+                새 버전 만들기
+              </button>
+            )}
+            {draft.kind === "문제" && draft.versionId && draft.editable && (
+              <button
+                type="button"
+                className="button secondary"
+                disabled={busy}
+                onClick={() => void validateProblem()}
+              >
+                기준 코드 검증
+              </button>
+            )}
             {draft.id &&
-              (draft.state === "DRAFT" ? (
+              (draft.kind === "강의" || draft.validatedAt) &&
+              draft.status !== "PUBLISHED" && (
                 <button
                   type="button"
                   className="button secondary"
-                  onClick={() => setArchive(true)}
+                  disabled={busy}
+                  onClick={() => void publishCurrent()}
                 >
-                  <Archive size={15} />
-                  보관
+                  공개
                 </button>
-              ) : (
+              )}
+            {draft.id && draft.status !== "ARCHIVED" ? (
+              <button
+                type="button"
+                className="button secondary"
+                disabled={busy}
+                onClick={() => setArchiveOpen(true)}
+              >
+                <Archive size={15} />
+                보관
+              </button>
+            ) : (
+              draft.id && (
                 <button
                   type="button"
                   className="button secondary"
-                  onClick={() => persist({ ...draft, state: "DRAFT" })}
+                  disabled={busy}
+                  onClick={() => void restoreCurrent()}
                 >
                   <RotateCcw size={15} />
-                  초안으로 복원
+                  복원
                 </button>
-              ))}
-            <span className="small-muted">
-              저장한 초안은 공개 강의·문제 목록에 반영되지 않습니다.
-            </span>
+              )
+            )}
           </div>
         </form>
       </div>
-      {archive && (
+      {archiveOpen && (
         <ConfirmDialog
           titleId="archive-title"
-          onClose={() => setArchive(false)}
+          onClose={() => setArchiveOpen(false)}
         >
           <h2 id="archive-title">콘텐츠를 보관할까요?</h2>
-          <p>초안을 보관 상태로 변경합니다. 나중에 복원할 수 있습니다.</p>
+          <p>
+            보관한 콘텐츠는 공개 목록에서 제외되며 나중에 복원할 수 있습니다.
+          </p>
           <div className="actions">
             <button
               autoFocus
               className="button secondary"
-              onClick={() => setArchive(false)}
+              onClick={() => setArchiveOpen(false)}
             >
               취소
             </button>
             <button
               className="button primary"
-              onClick={() => {
-                persist({ ...draft, state: "ARCHIVED" });
-                setArchive(false);
-              }}
+              onClick={() => void archiveCurrent()}
             >
               보관하기
             </button>
@@ -506,4 +959,48 @@ export default function Admin({ notify }: { notify: (s: string) => void }) {
       )}
     </>
   );
+}
+
+function textField(
+  draft: ContentDraft,
+  change: <K extends keyof ContentDraft>(
+    key: K,
+    value: ContentDraft[K],
+  ) => void,
+  key: "input" | "output" | "constraints",
+  label: string,
+  busy: boolean,
+) {
+  return (
+    <label>
+      {label}
+      <textarea
+        rows={2}
+        disabled={!draft.editable || busy}
+        value={draft[key]}
+        onChange={(event) => change(key, event.target.value)}
+      />
+    </label>
+  );
+}
+
+function toggle(values: string[], value: string, checked: boolean) {
+  return checked ? [...values, value] : values.filter((item) => item !== value);
+}
+
+function numberValue(value: string, label: string) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed))
+    throw new Error(`${label} 값을 확인해 주세요.`);
+  return parsed;
+}
+
+function messageOf(reason: unknown) {
+  if (reason instanceof ApiError || reason instanceof Error)
+    return reason.message;
+  return "요청을 처리하지 못했습니다.";
+}
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

@@ -1,12 +1,18 @@
 import type { Queue } from "bullmq";
 import type { PrismaClient } from "./generated/prisma/client";
 
-type Queues = { runs: Queue; submissions: Queue };
+type Queues = { runs: Queue; submissions: Queue; validations: Queue };
 
 export async function dispatchOutbox(prisma: PrismaClient, queues: Queues) {
   const events = await prisma.outboxEvent.findMany({
     where: {
-      topic: { in: ["run.requested", "submission.requested"] },
+      topic: {
+        in: [
+          "run.requested",
+          "submission.requested",
+          "problem-version.validate",
+        ],
+      },
       status: { in: ["PENDING", "FAILED"] },
       availableAt: { lte: new Date() },
     },
@@ -36,6 +42,12 @@ export async function dispatchOutbox(prisma: PrismaClient, queues: Queues) {
           where: { id: event.aggregateId, status: "PENDING" },
           data: { status: "QUEUED" },
         });
+      } else if (event.topic === "problem-version.validate") {
+        await queues.validations.add(
+          "validate-problem-version",
+          { validationId: event.aggregateId },
+          { jobId: event.id, removeOnComplete: 100, removeOnFail: 100 },
+        );
       }
       await prisma.outboxEvent.update({
         where: { id: event.id },

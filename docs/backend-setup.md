@@ -97,7 +97,13 @@ npm.cmd run infra:down
 
 ## 아직 연결되지 않은 범위
 
-- 코드 초안과 관리자 편집 화면은 아직 브라우저 localStorage를 사용한다.
-- Outbox Dispatcher와 BullMQ 실행·제출 소비자는 구현되었으며 개발 환경에서는 Fake Provider를 사용한다.
-- Judge0 설치·실행 어댑터와 실제 C++ 컴파일은 아직 연결되지 않았다.
+- 문제 풀이 코드 초안은 브라우저 localStorage를 사용한다. 관리자 편집 화면은 관리자 API와 PostgreSQL을 사용한다.
+- Outbox Dispatcher와 BullMQ 실행·제출·기준 코드 검증 소비자가 구현되어 있다.
+- 실행 Provider는 `.env`에서 Fake 또는 Judge0를 선택한다. Judge0 모드는 SSH 터널과 토큰이 필요하다.
 - Docker가 없는 환경에서는 DB migration, seed, API 통합 시험을 실행할 수 없다.
+
+관리자 API 통합 시험은 API와 Worker를 실행한 상태에서 다음 명령으로 수행한다. 임시 계정과 콘텐츠는 성공·실패 여부와 관계없이 정리된다.
+
+```powershell
+npm.cmd run test:admin-integration
+```

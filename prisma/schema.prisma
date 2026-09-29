@@ -74,6 +74,14 @@ enum OutboxStatus {
   FAILED
 }
 
+enum ValidationStatus {
+  PENDING
+  RUNNING
+  PASSED
+  FAILED
+  SYSTEM_ERROR
+}
+
 model User {
   id             String           @id @default(uuid()) @db.Uuid
   email          String           @unique @db.VarChar(320)
@@ -88,6 +96,7 @@ model User {
   submissions    Submission[]
   lessonProgress LessonProgress[]
   auditLogs      AuditLog[]       @relation("AuditActor")
+  problemValidations ProblemValidation[]
 
   @@map("users")
 }
@@ -172,6 +181,8 @@ model ProblemVersion {
   id                String         @id @default(uuid()) @db.Uuid
   problemId         String         @map("problem_id") @db.Uuid
   version           Int
+  title             String         @db.VarChar(200)
+  difficulty        Int
   statement         String         @db.Text
   inputDescription  String         @map("input_description") @db.Text
   outputDescription String         @map("output_description") @db.Text
@@ -190,10 +201,28 @@ model ProblemVersion {
   testCases         TestCase[]
   runs              Run[]
   submissions       Submission[]
+  validations       ProblemValidation[]
 
   @@unique([problemId, version])
   @@index([problemId, publishedAt])
   @@map("problem_versions")
+}
+
+model ProblemValidation {
+  id               String           @id @default(uuid()) @db.Uuid
+  problemVersionId String           @map("problem_version_id") @db.Uuid
+  requestedById    String           @map("requested_by_id") @db.Uuid
+  status           ValidationStatus @default(PENDING)
+  diagnostic       String?          @db.Text
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt        DateTime?        @map("started_at") @db.Timestamptz(3)
+  finishedAt       DateTime?        @map("finished_at") @db.Timestamptz(3)
+  problemVersion   ProblemVersion   @relation(fields: [problemVersionId], references: [id], onDelete: Cascade)
+  requestedBy      User             @relation(fields: [requestedById], references: [id], onDelete: Restrict)
+
+  @@index([problemVersionId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@map("problem_validations")
 }
 
 model TestCase {

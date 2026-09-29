@@ -43,3 +43,9 @@ JUDGE0_POLL_INTERVAL_MS=500
 ```
 
 Worker는 비동기 제출로 토큰을 받은 뒤 완료 상태까지 폴링한다. 문제 버전의 시간 및 메모리 제한을 Judge0에 전달하고, 기대 출력 비교는 신뢰할 수 있는 CppStudy Worker에서 수행한다.
+
+관리자 기준 코드를 검증할 때는 `problem-version.validate` Outbox 이벤트가 전용 BullMQ Queue로 전달된다. Worker가 공개 예제와 숨김 테스트를 모두 실행하고 출력 비교까지 통과한 버전에만 `validatedAt`을 기록한다. 관리자 통합 시험은 API와 Worker 실행 후 다음 명령으로 반복한다.
+
+```powershell
+npm.cmd run test:admin-integration
+```

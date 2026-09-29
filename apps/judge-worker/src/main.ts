@@ -30,6 +30,7 @@ async function main(): Promise<void> {
   const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
   const runs = new Queue("cppstudy-runs", { connection });
   const submissions = new Queue("cppstudy-submissions", { connection });
+  const validations = new Queue("cppstudy-validations", { connection });
   const processors = createProcessors(prisma, provider);
   const concurrency = Math.min(
     Math.max(Number(process.env.WORKER_CONCURRENCY) || 2, 1),
@@ -45,6 +46,11 @@ async function main(): Promise<void> {
     async (job) => processors.submission(job.data.submissionId),
     { connection, concurrency },
   );
+  const validationWorker = new Worker<{ validationId: string }>(
+    "cppstudy-validations",
+    async (job) => processors.validation(job.data.validationId),
+    { connection, concurrency: 1 },
+  );
 
   runWorker.on("failed", (job, error) =>
     process.stderr.write(
@@ -56,13 +62,18 @@ async function main(): Promise<void> {
       `Submission job ${job?.id ?? "unknown"} failed: ${error.message}\n`,
     ),
   );
+  validationWorker.on("failed", (job, error) =>
+    process.stderr.write(
+      `Validation job ${job?.id ?? "unknown"} failed: ${error.message}\n`,
+    ),
+  );
 
   let dispatching = false;
   const dispatch = async () => {
     if (dispatching) return;
     dispatching = true;
     try {
-      await dispatchOutbox(prisma, { runs, submissions });
+      await dispatchOutbox(prisma, { runs, submissions, validations });
     } catch (error) {
       process.stderr.write(
         `Outbox dispatch failed: ${error instanceof Error ? error.message : String(error)}\n`,
@@ -83,8 +94,10 @@ async function main(): Promise<void> {
     await Promise.all([
       runWorker.close(),
       submissionWorker.close(),
+      validationWorker.close(),
       runs.close(),
       submissions.close(),
+      validations.close(),
     ]);
     connection.disconnect();
     await prisma.$disconnect();
@@ -101,7 +114,9 @@ void main().catch((error) => {
   process.exitCode = 1;
 });
 
-async function createProvider(providerName: string): Promise<ExecutionProvider> {
+async function createProvider(
+  providerName: string,
+): Promise<ExecutionProvider> {
   if (providerName === "fake") return new FakeExecutionProvider();
   if (providerName !== "judge0") {
     throw new Error(`Unsupported EXECUTION_PROVIDER '${providerName}'`);
@@ -114,7 +129,10 @@ async function createProvider(providerName: string): Promise<ExecutionProvider> 
     languageId: positiveNumberEnvironment("JUDGE0_CPP17_LANGUAGE_ID", 54),
     compilerVersion:
       process.env.JUDGE0_COMPILER_VERSION ?? "C++17 via Judge0 CE 1.13.1",
-    requestTimeoutMs: positiveNumberEnvironment("JUDGE0_REQUEST_TIMEOUT_MS", 10000),
+    requestTimeoutMs: positiveNumberEnvironment(
+      "JUDGE0_REQUEST_TIMEOUT_MS",
+      10000,
+    ),
     executionTimeoutMs: positiveNumberEnvironment(
       "JUDGE0_EXECUTION_TIMEOUT_MS",
       30000,

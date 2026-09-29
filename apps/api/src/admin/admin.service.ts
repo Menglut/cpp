@@ -1,11 +1,16 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { PrismaService } from "../database/prisma.service";
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import type { AuthenticatedUser } from "../common/request-context";
+import { PrismaService } from "../database/prisma.service";
 import type {
   CreateLessonDto,
   CreateProblemDto,
   LinkLessonProblemsDto,
   SaveTestCasesDto,
+  SetProblemRelationsDto,
   UpdateLessonDto,
   UpdateProblemDto,
 } from "./dto/admin.dto";
@@ -14,22 +19,141 @@ import type {
 export class AdminService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async listContent() {
+    const [lessons, problems, categories] = await Promise.all([
+      this.prisma.client.lesson.findMany({
+        orderBy: [{ order: "asc" }, { updatedAt: "desc" }],
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          status: true,
+          order: true,
+          updatedAt: true,
+        },
+      }),
+      this.prisma.client.problem.findMany({
+        orderBy: { number: "asc" },
+        select: {
+          id: true,
+          number: true,
+          title: true,
+          difficulty: true,
+          status: true,
+          updatedAt: true,
+          currentVersionId: true,
+          versions: {
+            where: { publishedAt: null },
+            orderBy: { version: "desc" },
+            take: 1,
+            select: { id: true, version: true },
+          },
+        },
+      }),
+      this.prisma.client.category.findMany({ orderBy: { name: "asc" } }),
+    ]);
+    return {
+      lessons,
+      problems: problems.map(({ versions, ...problem }) => ({
+        ...problem,
+        editableVersionId: versions[0]?.id ?? null,
+        editableVersion: versions[0]?.version ?? null,
+      })),
+      categories,
+    };
+  }
+
+  async getLesson(id: string) {
+    const lesson = await this.prisma.client.lesson.findUnique({
+      where: { id },
+      include: {
+        problems: {
+          orderBy: { order: "asc" },
+          select: { problemId: true, order: true },
+        },
+      },
+    });
+    if (!lesson) this.notFound("강의를 찾을 수 없습니다.");
+    return lesson;
+  }
+
+  async getProblem(id: string) {
+    const problem = await this.prisma.client.problem.findUnique({
+      where: { id },
+      include: {
+        currentVersion: {
+          include: { testCases: { orderBy: { position: "asc" } } },
+        },
+        versions: {
+          where: { publishedAt: null },
+          orderBy: { version: "desc" },
+          take: 1,
+          include: {
+            testCases: { orderBy: { position: "asc" } },
+            validations: { orderBy: { createdAt: "desc" }, take: 1 },
+          },
+        },
+        categories: { select: { categoryId: true } },
+        lessons: {
+          orderBy: { order: "asc" },
+          select: { lessonId: true, order: true },
+        },
+      },
+    });
+    if (!problem) this.notFound("문제를 찾을 수 없습니다.");
+    const editableVersion = problem.versions[0] ?? problem.currentVersion;
+    return {
+      id: problem.id,
+      number: problem.number,
+      title: editableVersion?.title ?? problem.title,
+      difficulty: editableVersion?.difficulty ?? problem.difficulty,
+      status: problem.status,
+      currentVersionId: problem.currentVersionId,
+      editable: Boolean(editableVersion && !editableVersion.publishedAt),
+      editableVersion,
+      categoryIds: problem.categories.map((item) => item.categoryId),
+      lessonIds: problem.lessons.map((item) => item.lessonId),
+    };
+  }
+
+  async getValidation(id: string) {
+    const validation = await this.prisma.client.problemValidation.findUnique({
+      where: { id },
+    });
+    if (!validation) this.notFound("검증 작업을 찾을 수 없습니다.");
+    return validation;
+  }
+
   createLesson(dto: CreateLessonDto, actor: AuthenticatedUser) {
     return this.prisma.transaction(async (tx) => {
       const lesson = await tx.lesson.create({ data: dto });
       await tx.auditLog.create({
-        data: { actorId: actor.id, action: "LESSON_CREATE", targetType: "Lesson", targetId: lesson.id },
+        data: {
+          actorId: actor.id,
+          action: "LESSON_CREATE",
+          targetType: "Lesson",
+          targetId: lesson.id,
+        },
       });
       return lesson;
     });
   }
 
-  async updateLesson(id: string, dto: UpdateLessonDto, actor: AuthenticatedUser) {
+  async updateLesson(
+    id: string,
+    dto: UpdateLessonDto,
+    actor: AuthenticatedUser,
+  ) {
     await this.requireLesson(id);
     return this.prisma.transaction(async (tx) => {
       const lesson = await tx.lesson.update({ where: { id }, data: dto });
       await tx.auditLog.create({
-        data: { actorId: actor.id, action: "LESSON_UPDATE", targetType: "Lesson", targetId: id },
+        data: {
+          actorId: actor.id,
+          action: "LESSON_UPDATE",
+          targetType: "Lesson",
+          targetId: id,
+        },
       });
       return lesson;
     });
@@ -37,16 +161,46 @@ export class AdminService {
 
   async archiveLesson(id: string, actor: AuthenticatedUser) {
     await this.requireLesson(id);
+    return this.changeLessonStatus(id, "ARCHIVED", "LESSON_ARCHIVE", actor);
+  }
+
+  async publishLesson(id: string, actor: AuthenticatedUser) {
+    await this.requireLesson(id);
     return this.prisma.transaction(async (tx) => {
-      const lesson = await tx.lesson.update({ where: { id }, data: { status: "ARCHIVED" } });
+      const lesson = await tx.lesson.update({
+        where: { id },
+        data: { status: "PUBLISHED", publishedAt: new Date() },
+      });
       await tx.auditLog.create({
-        data: { actorId: actor.id, action: "LESSON_ARCHIVE", targetType: "Lesson", targetId: id },
+        data: {
+          actorId: actor.id,
+          action: "LESSON_PUBLISH",
+          targetType: "Lesson",
+          targetId: id,
+        },
       });
       return lesson;
     });
   }
 
-  async linkLessonProblems(id: string, dto: LinkLessonProblemsDto, actor: AuthenticatedUser) {
+  async restoreLesson(id: string, actor: AuthenticatedUser) {
+    const lesson = await this.prisma.client.lesson.findUnique({
+      where: { id },
+    });
+    if (!lesson) this.notFound("강의를 찾을 수 없습니다.");
+    return this.changeLessonStatus(
+      id,
+      lesson.publishedAt ? "PUBLISHED" : "DRAFT",
+      "LESSON_RESTORE",
+      actor,
+    );
+  }
+
+  async linkLessonProblems(
+    id: string,
+    dto: LinkLessonProblemsDto,
+    actor: AuthenticatedUser,
+  ) {
     await this.requireLesson(id);
     return this.prisma.transaction(async (tx) => {
       await tx.lessonProblem.deleteMany({ where: { lessonId: id } });
@@ -71,19 +225,39 @@ export class AdminService {
   createProblem(dto: CreateProblemDto, actor: AuthenticatedUser) {
     const { number, title, difficulty, ...versionData } = dto;
     return this.prisma.transaction(async (tx) => {
-      const problem = await tx.problem.create({ data: { number, title, difficulty } });
-      const version = await tx.problemVersion.create({
-        data: { problemId: problem.id, version: 1, ...versionData },
+      const problem = await tx.problem.create({
+        data: { number, title, difficulty },
       });
-      await tx.problem.update({ where: { id: problem.id }, data: { currentVersionId: version.id } });
+      const version = await tx.problemVersion.create({
+        data: {
+          problemId: problem.id,
+          version: 1,
+          title,
+          difficulty,
+          ...versionData,
+        },
+      });
+      await tx.problem.update({
+        where: { id: problem.id },
+        data: { currentVersionId: version.id },
+      });
       await tx.auditLog.create({
-        data: { actorId: actor.id, action: "PROBLEM_CREATE", targetType: "Problem", targetId: problem.id },
+        data: {
+          actorId: actor.id,
+          action: "PROBLEM_CREATE",
+          targetType: "Problem",
+          targetId: problem.id,
+        },
       });
       return { ...problem, currentVersion: version };
     });
   }
 
-  async updateProblem(id: string, dto: UpdateProblemDto, actor: AuthenticatedUser) {
+  async updateProblem(
+    id: string,
+    dto: UpdateProblemDto,
+    actor: AuthenticatedUser,
+  ) {
     const problem = await this.prisma.client.problem.findUnique({
       where: { id },
       include: { currentVersion: true },
@@ -95,26 +269,166 @@ export class AdminService {
         message: "공개 문제는 새 버전을 만들어 수정해야 합니다.",
       });
     }
-    const { title, difficulty, ...versionData } = dto;
+    return this.updateProblemVersion(problem.currentVersion.id, dto, actor);
+  }
+
+  async createProblemVersion(id: string, actor: AuthenticatedUser) {
+    const problem = await this.prisma.client.problem.findUnique({
+      where: { id },
+      include: {
+        currentVersion: {
+          include: { testCases: { orderBy: { position: "asc" } } },
+        },
+        versions: {
+          where: { publishedAt: null },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+    if (!problem?.currentVersion) this.notFound("문제를 찾을 수 없습니다.");
+    if (problem.versions.length) {
+      throw new ConflictException({
+        code: "DRAFT_VERSION_EXISTS",
+        message: "이미 편집 중인 초안 버전이 있습니다.",
+      });
+    }
+    const source = problem.currentVersion;
     return this.prisma.transaction(async (tx) => {
-      if (title !== undefined || difficulty !== undefined) {
-        await tx.problem.update({ where: { id }, data: { title, difficulty } });
-      }
-      const version = await tx.problemVersion.update({
-        where: { id: problem.currentVersion!.id },
-        data: versionData,
+      const latest = await tx.problemVersion.aggregate({
+        where: { problemId: id },
+        _max: { version: true },
+      });
+      const version = await tx.problemVersion.create({
+        data: {
+          problemId: id,
+          version: (latest._max.version ?? 0) + 1,
+          title: source.title,
+          difficulty: source.difficulty,
+          statement: source.statement,
+          inputDescription: source.inputDescription,
+          outputDescription: source.outputDescription,
+          constraints: source.constraints,
+          comparator: source.comparator,
+          allowFinalNewline: source.allowFinalNewline,
+          timeLimitMs: source.timeLimitMs,
+          memoryLimitKiB: source.memoryLimitKiB,
+          starterCode: source.starterCode,
+          referenceSource: source.referenceSource,
+          testCases: {
+            create: source.testCases.map(
+              ({
+                position,
+                visibility,
+                input,
+                expectedOutput,
+                explanation,
+              }) => ({
+                position,
+                visibility,
+                input,
+                expectedOutput,
+                explanation,
+              }),
+            ),
+          },
+        },
+        include: { testCases: { orderBy: { position: "asc" } } },
       });
       await tx.auditLog.create({
-        data: { actorId: actor.id, action: "PROBLEM_UPDATE", targetType: "Problem", targetId: id },
+        data: {
+          actorId: actor.id,
+          action: "PROBLEM_VERSION_CREATE",
+          targetType: "ProblemVersion",
+          targetId: version.id,
+        },
       });
       return version;
     });
   }
 
-  async saveTestCases(versionId: string, dto: SaveTestCasesDto, actor: AuthenticatedUser) {
+  async updateProblemVersion(
+    versionId: string,
+    dto: UpdateProblemDto,
+    actor: AuthenticatedUser,
+  ) {
     const version = await this.prisma.client.problemVersion.findUnique({
       where: { id: versionId },
-      include: { problem: true },
+    });
+    if (!version) this.notFound("문제 버전을 찾을 수 없습니다.");
+    if (version.publishedAt) {
+      throw new ConflictException({
+        code: "PUBLISHED_VERSION_IMMUTABLE",
+        message: "공개된 문제 버전은 수정할 수 없습니다.",
+      });
+    }
+    const { title, difficulty, ...versionData } = dto;
+    return this.prisma.transaction(async (tx) => {
+      const updated = await tx.problemVersion.update({
+        where: { id: versionId },
+        data: { ...versionData, title, difficulty, validatedAt: null },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          action: "PROBLEM_UPDATE",
+          targetType: "ProblemVersion",
+          targetId: versionId,
+        },
+      });
+      return updated;
+    });
+  }
+
+  async setProblemRelations(
+    id: string,
+    dto: SetProblemRelationsDto,
+    actor: AuthenticatedUser,
+  ) {
+    await this.requireProblem(id);
+    return this.prisma.transaction(async (tx) => {
+      await tx.problemCategory.deleteMany({ where: { problemId: id } });
+      await tx.lessonProblem.deleteMany({ where: { problemId: id } });
+      if (dto.categoryIds.length) {
+        await tx.problemCategory.createMany({
+          data: dto.categoryIds.map((categoryId) => ({
+            problemId: id,
+            categoryId,
+          })),
+        });
+      }
+      if (dto.lessonIds.length) {
+        await tx.lessonProblem.createMany({
+          data: dto.lessonIds.map((lessonId, order) => ({
+            problemId: id,
+            lessonId,
+            order,
+          })),
+        });
+      }
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          action: "PROBLEM_RELATIONS_SET",
+          targetType: "Problem",
+          targetId: id,
+          metadata: {
+            categories: dto.categoryIds.length,
+            lessons: dto.lessonIds.length,
+          },
+        },
+      });
+      return { success: true };
+    });
+  }
+
+  async saveTestCases(
+    versionId: string,
+    dto: SaveTestCasesDto,
+    actor: AuthenticatedUser,
+  ) {
+    const version = await this.prisma.client.problemVersion.findUnique({
+      where: { id: versionId },
     });
     if (!version) this.notFound("문제 버전을 찾을 수 없습니다.");
     if (version.publishedAt) {
@@ -127,10 +441,16 @@ export class AdminService {
       await tx.testCase.deleteMany({ where: { problemVersionId: versionId } });
       if (dto.testCases.length) {
         await tx.testCase.createMany({
-          data: dto.testCases.map((testCase) => ({ problemVersionId: versionId, ...testCase })),
+          data: dto.testCases.map((testCase) => ({
+            problemVersionId: versionId,
+            ...testCase,
+          })),
         });
       }
-      await tx.problemVersion.update({ where: { id: versionId }, data: { validatedAt: null } });
+      await tx.problemVersion.update({
+        where: { id: versionId },
+        data: { validatedAt: null },
+      });
       await tx.auditLog.create({
         data: {
           actorId: actor.id,
@@ -150,11 +470,17 @@ export class AdminService {
       include: { testCases: true },
     });
     if (!version) this.notFound("문제 버전을 찾을 수 없습니다.");
+    if (version.publishedAt) {
+      throw new ConflictException({
+        code: "PUBLISHED_VERSION_IMMUTABLE",
+        message: "공개된 문제 버전은 다시 검증할 수 없습니다.",
+      });
+    }
     const examples = version.testCases.filter(
-      (test: { visibility: string }) => test.visibility === "EXAMPLE",
+      (test) => test.visibility === "EXAMPLE",
     ).length;
     const hidden = version.testCases.filter(
-      (test: { visibility: string }) => test.visibility === "HIDDEN",
+      (test) => test.visibility === "HIDDEN",
     ).length;
     if (!version.referenceSource || examples < 1 || hidden < 3) {
       throw new ConflictException({
@@ -163,22 +489,32 @@ export class AdminService {
       });
     }
     return this.prisma.transaction(async (tx) => {
-      const event = await tx.outboxEvent.create({
+      const validation = await tx.problemValidation.create({
+        data: { problemVersionId: versionId, requestedById: actor.id },
+      });
+      await tx.outboxEvent.create({
         data: {
           topic: "problem-version.validate",
-          aggregateId: versionId,
-          payload: { problemVersionId: versionId },
+          aggregateId: validation.id,
+          payload: { validationId: validation.id, problemVersionId: versionId },
         },
       });
       await tx.auditLog.create({
-        data: { actorId: actor.id, action: "PROBLEM_VALIDATE", targetType: "ProblemVersion", targetId: versionId },
+        data: {
+          actorId: actor.id,
+          action: "PROBLEM_VALIDATE",
+          targetType: "ProblemVersion",
+          targetId: versionId,
+        },
       });
-      return { validationId: event.id, status: "PENDING" };
+      return { validationId: validation.id, status: validation.status };
     });
   }
 
   async publish(versionId: string, actor: AuthenticatedUser) {
-    const version = await this.prisma.client.problemVersion.findUnique({ where: { id: versionId } });
+    const version = await this.prisma.client.problemVersion.findUnique({
+      where: { id: versionId },
+    });
     if (!version) this.notFound("문제 버전을 찾을 수 없습니다.");
     if (!version.validatedAt) {
       throw new ConflictException({
@@ -188,33 +524,110 @@ export class AdminService {
     }
     return this.prisma.transaction(async (tx) => {
       const now = new Date();
-      await tx.problemVersion.update({ where: { id: versionId }, data: { publishedAt: now } });
+      await tx.problemVersion.update({
+        where: { id: versionId },
+        data: { publishedAt: now },
+      });
       const problem = await tx.problem.update({
         where: { id: version.problemId },
-        data: { status: "PUBLISHED", currentVersionId: versionId },
+        data: {
+          status: "PUBLISHED",
+          currentVersionId: versionId,
+          title: version.title,
+          difficulty: version.difficulty,
+        },
       });
       await tx.auditLog.create({
-        data: { actorId: actor.id, action: "PROBLEM_PUBLISH", targetType: "ProblemVersion", targetId: versionId },
+        data: {
+          actorId: actor.id,
+          action: "PROBLEM_PUBLISH",
+          targetType: "ProblemVersion",
+          targetId: versionId,
+        },
       });
       return problem;
     });
   }
 
   async archiveProblem(id: string, actor: AuthenticatedUser) {
-    const problem = await this.prisma.client.problem.findUnique({ where: { id } });
+    await this.requireProblem(id);
+    return this.changeProblemStatus(id, "ARCHIVED", "PROBLEM_ARCHIVE", actor);
+  }
+
+  async restoreProblem(id: string, actor: AuthenticatedUser) {
+    const problem = await this.prisma.client.problem.findUnique({
+      where: { id },
+      include: { currentVersion: true },
+    });
     if (!problem) this.notFound("문제를 찾을 수 없습니다.");
+    return this.changeProblemStatus(
+      id,
+      problem.currentVersion?.publishedAt ? "PUBLISHED" : "DRAFT",
+      "PROBLEM_RESTORE",
+      actor,
+    );
+  }
+
+  private changeLessonStatus(
+    id: string,
+    status: "DRAFT" | "PUBLISHED" | "ARCHIVED",
+    action: string,
+    actor: AuthenticatedUser,
+  ) {
     return this.prisma.transaction(async (tx) => {
-      const archived = await tx.problem.update({ where: { id }, data: { status: "ARCHIVED" } });
-      await tx.auditLog.create({
-        data: { actorId: actor.id, action: "PROBLEM_ARCHIVE", targetType: "Problem", targetId: id },
+      const lesson = await tx.lesson.update({
+        where: { id },
+        data: { status },
       });
-      return archived;
+      await tx.auditLog.create({
+        data: { actorId: actor.id, action, targetType: "Lesson", targetId: id },
+      });
+      return lesson;
+    });
+  }
+
+  private changeProblemStatus(
+    id: string,
+    status: "DRAFT" | "PUBLISHED" | "ARCHIVED",
+    action: string,
+    actor: AuthenticatedUser,
+  ) {
+    return this.prisma.transaction(async (tx) => {
+      const problem = await tx.problem.update({
+        where: { id },
+        data: { status },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          action,
+          targetType: "Problem",
+          targetId: id,
+        },
+      });
+      return problem;
     });
   }
 
   private async requireLesson(id: string): Promise<void> {
-    if (!(await this.prisma.client.lesson.findUnique({ where: { id }, select: { id: true } }))) {
+    if (
+      !(await this.prisma.client.lesson.findUnique({
+        where: { id },
+        select: { id: true },
+      }))
+    ) {
       this.notFound("강의를 찾을 수 없습니다.");
+    }
+  }
+
+  private async requireProblem(id: string): Promise<void> {
+    if (
+      !(await this.prisma.client.problem.findUnique({
+        where: { id },
+        select: { id: true },
+      }))
+    ) {
+      this.notFound("문제를 찾을 수 없습니다.");
     }
   }
 

@@ -11,6 +11,7 @@
     "build": "npm run prisma:generate && npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:admin-integration": "tsx scripts/admin-integration.ts",
     "dev:web": "npm run dev --workspace @cppstudy/web",
     "dev:api": "npm run start:dev --workspace @cppstudy/api",
     "dev:worker": "npm run start:dev --workspace @cppstudy/judge-worker",

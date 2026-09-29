@@ -294,6 +294,8 @@ async function seed(): Promise<void> {
         },
       });
       const versionData = {
+        title: item.title,
+        difficulty: item.difficulty,
         statement: `# ${item.title}\n\n${item.statement}`,
         inputDescription: item.input,
         outputDescription: item.output,

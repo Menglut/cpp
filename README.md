@@ -1,4 +1,4 @@
-# CppStudy 프론트엔드 프로토타입
+# CppStudy C++ 학습 플랫폼 MVP
 
 `gptMaking.md`의 **개념 학습 → 문제 풀이 → 실행·제출 → 기록 확인** 흐름을 체험하는 한국어 프론트엔드입니다. Next.js App Router, React, TypeScript, Tailwind CSS, Monaco Editor를 사용합니다.
 
@@ -10,7 +10,7 @@
 
 ## 실행
 
-Node.js 20.9 이상이 필요합니다. 검증 환경은 Windows / Node.js 24.12.0입니다.
+Node.js 24 이상이 필요합니다. 검증 환경은 Windows / Node.js 24.12.0입니다.
 
 ```powershell
 cd D:\project\react\cpp
@@ -46,7 +46,7 @@ npm.cmd run dev:api
 | `/login`, `/register`    | 실제 회원가입·로그인·로그아웃, 쿠키 세션, 원래 페이지로 복귀                                                  |
 | `/me`, `/me/submissions` | DB에 저장된 강의 완료·해결 문제·제출 수 및 본인 제출 기록                                                     |
 | `/submissions/[id]`      | 제출 당시 고정 소스, 문제 버전, 판정과 자원 사용량                                                            |
-| `/admin`                 | 문제·강의 초안 작성·수정, Markdown 미리보기, 강의·문제 연결, 문제 조건, 예제·테스트·기준 코드 입력, 보관·복원 |
+| `/admin`                 | API 기반 문제·강의 작성·수정, 연결 관리, 숨김 테스트·기준 코드 검증, 공개·보관·복원                              |
 
 작은 화면의 풀이 페이지는 **문제 / 코드 / 결과** 탭으로 전환됩니다. 확인창은 키보드 포커스를 내부에 유지하며 Escape로 취소할 수 있습니다.
 
@@ -66,12 +66,12 @@ npm.cmd run dev:api
 - 회원가입·로그인·로그아웃은 NestJS API와 PostgreSQL 세션 저장소에 연결되어 있습니다. 비밀번호는 Argon2id로 해시하고 브라우저에는 HttpOnly 세션 쿠키만 저장합니다.
 - 실행 Worker는 개발용 Fake Provider와 실제 Judge0 CE Provider를 환경변수로 선택할 수 있습니다. Judge0 모드에서는 비동기 제출·폴링으로 실제 C++17 코드를 컴파일하고 실행합니다.
 - 로컬 개발 환경에서 원격 Judge0를 사용할 때는 2358 포트를 공개하지 않고 SSH 터널을 사용합니다. 설정 방법은 `docs/judge0-provider.md`에 기록되어 있습니다.
-- 관리자 권한은 서버 세션의 role로 판정합니다. 관리자 편집 화면은 아직 브라우저 데모 데이터입니다.
+- 관리자 권한은 서버 세션의 role로 판정합니다. 관리자 편집 데이터와 숨김 테스트는 PostgreSQL의 관리자 API로만 조회·저장합니다.
 - 코드 초안 키는 계정·문제·언어를 포함하며 현재 브라우저에만 저장됩니다. 로그아웃하면 해당 계정 초안을 지웁니다.
 - 강의 완료와 제출 기록은 PostgreSQL에 저장되므로 같은 계정으로 다른 브라우저에서 로그인해도 조회할 수 있습니다.
-- 관리자 테스트 입력은 UI 시연용입니다. 실제 비공개 테스트를 프론트엔드 번들에 포함하지 않았습니다. 초안은 실제 검증 전 공개할 수 없으며 공개 목록에도 반영되지 않습니다.
+- 관리자 초안은 기준 코드가 공개 예제 1개와 숨김 테스트 3개 이상을 모두 통과해야 공개할 수 있습니다. 비공개 테스트는 공개 API와 프론트엔드 번들에 포함하지 않습니다.
 - Markdown의 원시 HTML은 렌더링하지 않고 MDX/JavaScript를 실행하지 않습니다.
-- NestJS API, 세션, DB 스키마, Redis 큐 기반 구조는 추가되었지만 실제 Judge0 실행·검증·재채점은 아직 구현하지 않았습니다.
+- Judge0 Provider와 기준 코드 검증 Worker가 연결되어 있습니다. 재채점, Redis 장애 복구 및 다중 Worker 경쟁 검증은 후속 범위입니다.
 - 로드맵·힌트·오답노트·북마크·랭킹·공지·다크모드 등 확장 메뉴는 노출하지 않습니다. 원문 13개 교육 주제 전체가 아닌 6개 샘플 강의를 제공합니다.
 
 ## 주요 생성 파일
@@ -93,6 +93,6 @@ npm.cmd run dev:api
 
 ## 후속 개발 연결 지점
 
-다음 작업은 실제 Judge0 통합 시나리오를 검증하고 관리자 화면을 API에 연결하는 것입니다. Monaco는 소스 작성만 담당하며 실제 코드 실행은 별도의 격리된 Judge0 서비스가 수행합니다.
+다음 작업은 AC/WA/CE/RE/TLE/MLE/OLE fixture를 이용한 Judge0 판정 검증과 브라우저 E2E, Outbox 장애 복구 검증입니다. 반복 검증 절차는 `체크리스트.md`를 참고합니다.
 
 구성 참고: [Next.js 공식 설치 문서](https://nextjs.org/docs/app/getting-started/installation), [Monaco React 공식 저장소](https://github.com/suren-atoyan/monaco-react).

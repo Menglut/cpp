@@ -167,7 +167,110 @@ export function createProcessors(
         );
       }
     },
+
+    validation: async (validationId: string) => {
+      const validation = await prisma.problemValidation.findUnique({
+        where: { id: validationId },
+        include: {
+          problemVersion: {
+            include: { testCases: { orderBy: { position: "asc" } } },
+          },
+        },
+      });
+      if (!validation || ["PASSED", "FAILED"].includes(validation.status))
+        return;
+      const version = validation.problemVersion;
+      if (!version.referenceSource) {
+        await prisma.problemValidation.update({
+          where: { id: validation.id },
+          data: {
+            status: "FAILED",
+            diagnostic: "기준 코드가 없습니다.",
+            finishedAt: new Date(),
+          },
+        });
+        return;
+      }
+      try {
+        await prisma.problemValidation.update({
+          where: { id: validation.id },
+          data: { status: "RUNNING", startedAt: new Date(), diagnostic: null },
+        });
+        for (const test of version.testCases) {
+          const result = await provider.execute({
+            sourceCode: version.referenceSource,
+            stdin: test.input,
+            expectedOutput: test.expectedOutput,
+            timeLimitMs: version.timeLimitMs,
+            memoryLimitKiB: version.memoryLimitKiB,
+          });
+          if (result.status !== "SUCCESS") {
+            await finishValidation(
+              prisma,
+              validation.id,
+              "FAILED",
+              allowedDiagnostic(result),
+            );
+            return;
+          }
+          if (
+            !compareOutput(result.stdout ?? "", test.expectedOutput, {
+              comparator: version.comparator,
+              allowFinalNewline: version.allowFinalNewline,
+            })
+          ) {
+            await finishValidation(
+              prisma,
+              validation.id,
+              "FAILED",
+              `테스트 ${test.position}의 출력이 기대 출력과 일치하지 않습니다.`,
+            );
+            return;
+          }
+        }
+        await prisma.$transaction([
+          prisma.problemVersion.update({
+            where: { id: version.id },
+            data: { validatedAt: new Date() },
+          }),
+          prisma.problemValidation.update({
+            where: { id: validation.id },
+            data: {
+              status: "PASSED",
+              diagnostic: "모든 테스트를 통과했습니다.",
+              finishedAt: new Date(),
+            },
+          }),
+        ]);
+      } catch {
+        await finishValidation(
+          prisma,
+          validation.id,
+          "SYSTEM_ERROR",
+          "검증 실행 서비스 처리 중 오류가 발생했습니다.",
+        );
+        throw new Error(
+          `Problem validation ${validation.id} failed in the judge worker`,
+        );
+      }
+    },
   };
+}
+
+function finishValidation(
+  prisma: PrismaClient,
+  validationId: string,
+  status: "FAILED" | "SYSTEM_ERROR",
+  diagnostic: string,
+) {
+  return prisma.problemValidation.update({
+    where: { id: validationId },
+    data: {
+      status,
+      diagnostic: diagnostic.slice(0, 8000),
+      finishedAt: new Date(),
+    },
+  });
 }
 
 function allowedDiagnostic(result: ProviderResult): string {

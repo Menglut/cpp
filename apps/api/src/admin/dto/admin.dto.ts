@@ -12,7 +12,10 @@ import {
   Min,
   ValidateNested,
 } from "class-validator";
-import { ComparatorType, TestCaseVisibility } from "../../generated/prisma/enums";
+import {
+  ComparatorType,
+  TestCaseVisibility,
+} from "../../generated/prisma/enums";
 
 export class CreateLessonDto {
   @IsString() @Length(1, 100) slug!: string;
@@ -37,7 +40,8 @@ export class CreateProblemDto {
   @IsString() inputDescription!: string;
   @IsString() outputDescription!: string;
   @IsString() constraints!: string;
-  @IsOptional() @IsEnum(ComparatorType) comparator: ComparatorType = ComparatorType.TOKEN;
+  @IsOptional() @IsEnum(ComparatorType) comparator: ComparatorType =
+    ComparatorType.TOKEN;
   @IsOptional() @IsBoolean() allowFinalNewline = true;
   @IsInt() @Min(100) @Max(10000) timeLimitMs = 1000;
   @IsInt() @Min(16384) @Max(524288) memoryLimitKiB = 131072;
@@ -85,4 +89,9 @@ export class LinkLessonProblemsDto {
   @ValidateNested({ each: true })
   @Type(() => LinkLessonProblemDto)
   problems!: LinkLessonProblemDto[];
+}
+
+export class SetProblemRelationsDto {
+  @IsArray() @IsString({ each: true }) categoryIds!: string[];
+  @IsArray() @IsString({ each: true }) lessonIds!: string[];
 }
