@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import {
   ConflictException,
   Injectable,
@@ -8,6 +9,7 @@ import { PrismaService } from "../database/prisma.service";
 import type {
   CreateLessonDto,
   CreateLessonCategoryDto,
+  CreateInvitationDto,
   CreateProblemDto,
   LinkLessonProblemsDto,
   SaveTestCasesDto,
@@ -20,6 +22,97 @@ import type {
 @Injectable()
 export class AdminService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async listInvitations() {
+    const items = await this.prisma.client.invitation.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      select: {
+        id: true,
+        email: true,
+        expiresAt: true,
+        acceptedAt: true,
+        revokedAt: true,
+        createdAt: true,
+        invitedBy: { select: { nickname: true, email: true } },
+      },
+    });
+    return { items };
+  }
+
+  async createInvitation(dto: CreateInvitationDto, actor: AuthenticatedUser) {
+    const email = dto.email.trim().toLowerCase();
+    if (await this.prisma.client.user.findUnique({ where: { email } })) {
+      throw new ConflictException({
+        code: "EMAIL_ALREADY_REGISTERED",
+        message: "이미 가입된 이메일입니다.",
+      });
+    }
+
+    const token = randomBytes(32).toString("base64url");
+    const tokenHash = createHash("sha256").update(token).digest("hex");
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const invitation = await this.prisma.transaction(async (tx) => {
+      await tx.invitation.updateMany({
+        where: {
+          email,
+          acceptedAt: null,
+          revokedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { revokedAt: now },
+      });
+      const created = await tx.invitation.create({
+        data: { email, tokenHash, expiresAt, invitedById: actor.id },
+        select: { id: true, email: true, expiresAt: true, createdAt: true },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          action: "INVITATION_CREATE",
+          targetType: "Invitation",
+          targetId: created.id,
+          metadata: { email, expiresAt: expiresAt.toISOString() },
+        },
+      });
+      return created;
+    });
+    return { ...invitation, token };
+  }
+
+  async revokeInvitation(id: string, actor: AuthenticatedUser) {
+    const invitation = await this.prisma.client.invitation.findUnique({
+      where: { id },
+    });
+    if (!invitation) this.notFound("초대를 찾을 수 없습니다.");
+    if (invitation.acceptedAt) {
+      throw new ConflictException({
+        code: "INVITATION_ALREADY_ACCEPTED",
+        message: "이미 사용된 초대는 취소할 수 없습니다.",
+      });
+    }
+    if (invitation.revokedAt)
+      return { ...invitation, revokedAt: invitation.revokedAt };
+
+    return this.prisma.transaction(async (tx) => {
+      const revokedAt = new Date();
+      const revoked = await tx.invitation.update({
+        where: { id },
+        data: { revokedAt },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          action: "INVITATION_REVOKE",
+          targetType: "Invitation",
+          targetId: id,
+          metadata: { email: invitation.email },
+        },
+      });
+      return revoked;
+    });
+  }
 
   async listContent() {
     const [lessons, problems, categories, lessonCategories] = await Promise.all(

@@ -10,6 +10,7 @@ coverage/
 !.env.production.example
 deploy/judge0.conf
 backups/
+docs/server-update.local.md
 apps/web/public/monaco/
 apps/api/src/generated/prisma/
 apps/api/uploads/

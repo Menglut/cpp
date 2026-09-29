@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import {
   Archive,
   Check,
+  Copy,
   Plus,
   RotateCcw,
   Search,
   Shield,
   Trash2,
   Upload,
+  UserPlus,
 } from "lucide-react";
 import {
   ApiError,
@@ -18,6 +20,7 @@ import {
   createAdminLesson,
   createAdminLessonCategory,
   createAdminLessonVersion,
+  createAdminInvitation,
   createAdminProblem,
   createAdminProblemVersion,
   getAdminLesson,
@@ -25,6 +28,7 @@ import {
   getAdminProblemValidation,
   deleteAdminAsset,
   listAdminAssets,
+  listAdminInvitations,
   mediaUrl,
   listAdminContent,
   publishAdminLesson,
@@ -32,6 +36,7 @@ import {
   requestAdminProblemValidation,
   restoreAdminLesson,
   restoreAdminProblem,
+  revokeAdminInvitation,
   setAdminLessonProblems,
   setAdminLessonCategoryStatus,
   setAdminProblemRelations,
@@ -41,6 +46,7 @@ import {
   updateAdminProblemVersion,
   uploadAdminAsset,
   type AdminContent,
+  type AdminInvitation,
   type ContentAsset,
   type ContentStatus,
   type ValidationStatus,
@@ -133,9 +139,9 @@ export default function Admin({
   const [content, setContent] = useState<AdminContent | null>(null);
   const [assets, setAssets] = useState<ContentAsset[]>([]);
   const [draft, setDraft] = useState<ContentDraft>(() => blank());
-  const [section, setSection] = useState<"lessons" | "problems" | "media">(
-    "lessons",
-  );
+  const [section, setSection] = useState<
+    "lessons" | "problems" | "media" | "invitations"
+  >("lessons");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ContentStatus | "ALL">(
     "ALL",
@@ -464,10 +470,12 @@ export default function Admin({
   const sectionItems =
     (section === "lessons"
       ? content?.lessons.map((item) => ({ ...item, kind: "강의" as const }))
-      : content?.problems.map((item) => ({
-          ...item,
-          kind: "문제" as const,
-        }))) ?? [];
+      : section === "problems"
+        ? content?.problems.map((item) => ({
+            ...item,
+            kind: "문제" as const,
+          }))
+        : []) ?? [];
   const visibleItems = sectionItems.filter(
     (item) =>
       (statusFilter === "ALL" || item.status === statusFilter) &&
@@ -514,6 +522,12 @@ export default function Admin({
         >
           미디어 <span>{assets.length}</span>
         </button>
+        <button
+          className={section === "invitations" ? "active" : ""}
+          onClick={() => setSection("invitations")}
+        >
+          회원 초대
+        </button>
       </nav>
       {error && <div className="auth-note">{error}</div>}
       {section === "lessons" && (
@@ -544,6 +558,8 @@ export default function Admin({
           onChange={setAssets}
           notify={notify}
         />
+      ) : section === "invitations" ? (
+        <InvitationManager notify={notify} />
       ) : (
         <div className="admin-layout">
           <aside className="admin-list">
@@ -1576,6 +1592,186 @@ function MediaManager({
           })}
         </div>
       )}
+    </section>
+  );
+}
+
+function InvitationManager({ notify }: { notify: (message: string) => void }) {
+  const [items, setItems] = useState<AdminInvitation[]>([]);
+  const [email, setEmail] = useState("");
+  const [createdLink, setCreatedLink] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      setItems(await listAdminInvitations());
+    } catch (reason) {
+      notify(messageOf(reason));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(createdLink);
+      notify("초대 링크를 복사했습니다.");
+    } catch {
+      notify("초대 링크를 복사하지 못했습니다.");
+    }
+  }
+
+  return (
+    <section className="invitation-manager">
+      <div className="invitation-create">
+        <div>
+          <div className="eyebrow">MEMBER INVITATION</div>
+          <h2>회원 초대</h2>
+          <p>초대 링크는 발급 후 24시간 동안 한 번만 사용할 수 있습니다.</p>
+        </div>
+        <form
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setBusy(true);
+            setCreatedLink("");
+            try {
+              const invitation = await createAdminInvitation(
+                email.trim().toLowerCase(),
+              );
+              const link = `${window.location.origin}/register?invite=${encodeURIComponent(invitation.token)}`;
+              setCreatedLink(link);
+              setEmail("");
+              await load();
+              notify("24시간 유효한 초대 링크를 만들었습니다.");
+            } catch (reason) {
+              notify(messageOf(reason));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <label>
+            초대할 이메일
+            <input
+              type="email"
+              required
+              maxLength={320}
+              disabled={busy}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="learner@example.com"
+            />
+          </label>
+          <button className="button primary" type="submit" disabled={busy}>
+            <UserPlus size={15} />
+            {busy ? "발급 중…" : "초대 링크 발급"}
+          </button>
+        </form>
+        {createdLink && (
+          <div className="invitation-link">
+            <strong>지금 링크를 복사해 전달하세요</strong>
+            <p>
+              보안을 위해 원본 링크는 이 화면을 벗어나면 다시 표시되지 않습니다.
+            </p>
+            <div>
+              <input
+                aria-label="생성된 초대 링크"
+                readOnly
+                value={createdLink}
+              />
+              <button
+                className="button secondary"
+                type="button"
+                onClick={copyLink}
+              >
+                <Copy size={15} /> 복사
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="invitation-list">
+        <div>
+          <h2>발급 내역</h2>
+          <span>{items.length}건</span>
+        </div>
+        {loading ? (
+          <p className="small-muted">초대 내역을 불러오는 중…</p>
+        ) : !items.length ? (
+          <p className="small-muted">아직 발급한 초대가 없습니다.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>이메일</th>
+                  <th>상태</th>
+                  <th>발급자</th>
+                  <th>만료 시각</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((invitation) => {
+                  const expired = new Date(invitation.expiresAt) <= new Date();
+                  const status = invitation.acceptedAt
+                    ? "가입 완료"
+                    : invitation.revokedAt
+                      ? "취소됨"
+                      : expired
+                        ? "만료됨"
+                        : "대기 중";
+                  const active =
+                    !invitation.acceptedAt && !invitation.revokedAt && !expired;
+                  return (
+                    <tr key={invitation.id}>
+                      <td>{invitation.email}</td>
+                      <td>
+                        <span className={`badge ${active ? "green" : "gray"}`}>
+                          {status}
+                        </span>
+                      </td>
+                      <td>{invitation.invitedBy.nickname}</td>
+                      <td>
+                        {new Date(invitation.expiresAt).toLocaleString("ko-KR")}
+                      </td>
+                      <td>
+                        {active && (
+                          <button
+                            className="text-button"
+                            type="button"
+                            disabled={busy}
+                            onClick={async () => {
+                              setBusy(true);
+                              try {
+                                await revokeAdminInvitation(invitation.id);
+                                await load();
+                                notify("초대를 취소했습니다.");
+                              } catch (reason) {
+                                notify(messageOf(reason));
+                              } finally {
+                                setBusy(false);
+                              }
+                            }}
+                          >
+                            취소
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </section>
   );
 }

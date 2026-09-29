@@ -3,6 +3,7 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsEmail,
   IsInt,
   IsOptional,
   IsString,
@@ -16,6 +17,12 @@ import {
   ComparatorType,
   TestCaseVisibility,
 } from "../../generated/prisma/enums";
+
+export class CreateInvitationDto {
+  @IsEmail()
+  @MaxLength(320)
+  email!: string;
+}
 
 export class CreateLessonDto {
   @IsString() categoryId!: string;

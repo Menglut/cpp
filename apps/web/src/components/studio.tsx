@@ -17,6 +17,7 @@ import {
   Copy,
   FileCode2,
   GraduationCap,
+  Layers3,
   ListChecks,
   LogOut,
   Play,
@@ -30,6 +31,7 @@ import {
   createRun,
   createSubmission,
   getCurrentUser,
+  getInvitation,
   getLearningProgress,
   getLesson,
   getLessonCatalog,
@@ -229,6 +231,7 @@ export default function Studio() {
     const parts = path.split("/").filter(Boolean);
     const load = async () => {
       setDetailError("");
+      if (!ready) return;
       if (parts[0] === "learn" && parts[1]) {
         setDetailLoading(true);
         setLessonDetail(null);
@@ -246,6 +249,10 @@ export default function Studio() {
           if (active) setDetailLoading(false);
         }
       } else if (parts[0] === "problems" && parts[1]) {
+        if (!user) {
+          setProblemDetail(null);
+          return;
+        }
         setDetailLoading(true);
         setProblemDetail(null);
         try {
@@ -286,7 +293,7 @@ export default function Studio() {
     return () => {
       active = false;
     };
-  }, [path, user]);
+  }, [path, ready, user]);
   useEffect(() => {
     let active = true;
     if (!user) {
@@ -363,12 +370,14 @@ export default function Studio() {
     name: string;
     email: string;
     password: string;
+    inviteToken: string;
   }) {
     const result = input.register
       ? await register({
           email: input.email,
           password: input.password,
           nickname: input.name,
+          inviteToken: input.inviteToken,
         })
       : await login({ email: input.email, password: input.password });
     setUser(toUser(result.user));
@@ -434,52 +443,11 @@ export default function Studio() {
           title="C++ 학습"
           description="처음 만나는 문법부터 STL까지. 이해의 폭을 한 단계씩 넓혀 보세요."
         />
-        <div className="info-strip">
-          <GraduationCap size={20} /> 공개 강의 {lessons.length}개{" "}
-          <span>데이터베이스에 공개된 과정만 표시됩니다.</span>
-        </div>
-        <div className="lesson-grid">
-          {lessonCategories.map((category, categoryIndex) => (
-            <section className="lesson-category" key={category.id}>
-              <div className="lesson-category-heading">
-                <span>{categoryIndex + 1}</span>
-                <div>
-                  <h2>{category.title}</h2>
-                  <p>{category.summary}</p>
-                </div>
-              </div>
-              <div className="lesson-category-items">
-                {category.lessons.map((lesson, lessonIndex) => (
-                  <Link
-                    href={"/learn/" + lesson.slug}
-                    className="lesson-card"
-                    key={lesson.slug}
-                  >
-                    <div className="card-top">
-                      <span className="chapter-number">
-                        {categoryIndex + 1}.{lessonIndex + 1}
-                      </span>
-                      {completed.includes(lesson.slug) ? (
-                        <span className="badge green">학습 완료</span>
-                      ) : (
-                        <span className="badge gray">{category.title}</span>
-                      )}
-                    </div>
-                    <BookOpen className="lesson-icon" size={28} />
-                    <h3>{lesson.title}</h3>
-                    <p>{lesson.summary}</p>
-                    <div className="card-footer">
-                      <span>
-                        LESSON {categoryIndex + 1}.{lessonIndex + 1}
-                      </span>
-                      <ArrowRight size={18} />
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+        <LessonCatalog
+          categories={lessonCategories}
+          lessonCount={lessons.length}
+          completed={completed}
+        />
       </>
     );
   else if (parts[0] === "learn" && parts[1])
@@ -508,7 +476,9 @@ export default function Studio() {
       />
     );
   else if (parts[0] === "problems" && parts[1]) {
-    content = detailLoading ? (
+    content = !user ? (
+      <LoginPrompt path={path} />
+    ) : detailLoading ? (
       <div className="loading">문제를 불러오고 있어요…</div>
     ) : detailError ? (
       <ContentError message={detailError} />
@@ -698,13 +668,6 @@ export default function Studio() {
           </div>
         </div>
       </header>
-      {path !== "/" && (
-        <div className="prototype-strip">
-          <span className="dot" /> C++ 학습 플랫폼 MVP{" "}
-          <span className="strip-divider">|</span> 인증·콘텐츠·실행·제출은 API에
-          연결되어 있으며 코드 초안만 이 브라우저에 저장됩니다.
-        </div>
-      )}
       <main
         id="main"
         className={
@@ -1127,6 +1090,145 @@ function PageTitle({
     </>
   );
 }
+
+function LessonCatalog({
+  categories,
+  lessonCount,
+  completed,
+}: {
+  categories: LessonCategory[];
+  lessonCount: number;
+  completed: string[];
+}) {
+  const [selectedSlug, setSelectedSlug] = useState("all");
+  const selectedCategory = categories.find(
+    (category) => category.slug === selectedSlug,
+  );
+  const visibleCategories = selectedCategory ? [selectedCategory] : categories;
+  const visibleLessonCount = visibleCategories.reduce(
+    (total, category) => total + category.lessons.length,
+    0,
+  );
+  const completedSet = new Set(completed);
+
+  return (
+    <section className="course-browser" aria-label="C++ 강의 카테고리">
+      <aside className="course-sidebar">
+        <div className="course-sidebar-title">
+          <span className="course-sidebar-icon">
+            <Layers3 size={18} />
+          </span>
+          <div>
+            <strong>학습 카테고리</strong>
+            <span>{categories.length}개의 학습 단계</span>
+          </div>
+        </div>
+        <div className="course-category-list" role="list">
+          <button
+            type="button"
+            className={selectedSlug === "all" ? "active" : ""}
+            onClick={() => setSelectedSlug("all")}
+            aria-pressed={selectedSlug === "all"}
+          >
+            <span className="course-category-number">ALL</span>
+            <span className="course-category-copy">
+              <strong>전체 강의</strong>
+              <small>{lessonCount}개 강의</small>
+            </span>
+            <ChevronRight size={16} />
+          </button>
+          {categories.map((category, index) => (
+            <button
+              type="button"
+              className={selectedSlug === category.slug ? "active" : ""}
+              onClick={() => setSelectedSlug(category.slug)}
+              aria-pressed={selectedSlug === category.slug}
+              key={category.id}
+            >
+              <span className="course-category-number">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <span className="course-category-copy">
+                <strong>{category.title}</strong>
+                <small>{category.lessons.length}개 강의</small>
+              </span>
+              <ChevronRight size={16} />
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <div className="course-results">
+        <header className="course-results-header">
+          <div>
+            <span className="course-results-kicker">
+              {selectedCategory ? "SELECTED CATEGORY" : "FULL CURRICULUM"}
+            </span>
+            <h2>{selectedCategory?.title ?? "전체 C++ 강의"}</h2>
+            <p>
+              {selectedCategory?.summary ??
+                "원하는 주제를 골라 지금 필요한 C++ 개념부터 학습해 보세요."}
+            </p>
+          </div>
+          <div className="course-results-count" aria-label="표시 중인 강의 수">
+            <strong>{visibleLessonCount}</strong>
+            <span>LESSONS</span>
+          </div>
+        </header>
+
+        {visibleLessonCount ? (
+          <div className="course-lesson-list">
+            {visibleCategories.flatMap((category) => {
+              const categoryIndex = categories.findIndex(
+                (item) => item.id === category.id,
+              );
+              return category.lessons.map((lesson, lessonIndex) => {
+                const isComplete = completedSet.has(lesson.slug);
+                return (
+                  <Link
+                    href={"/learn/" + lesson.slug}
+                    className="course-lesson-card"
+                    key={lesson.slug}
+                  >
+                    <span className="course-lesson-code">
+                      {String(categoryIndex + 1).padStart(2, "0")}.
+                      {String(lessonIndex + 1).padStart(2, "0")}
+                    </span>
+                    <span className="course-lesson-mark" aria-hidden="true">
+                      {isComplete ? (
+                        <Check size={20} />
+                      ) : (
+                        <BookOpen size={20} />
+                      )}
+                    </span>
+                    <span className="course-lesson-copy">
+                      <span className="course-lesson-meta">
+                        {category.title}
+                        {isComplete && <em>학습 완료</em>}
+                      </span>
+                      <strong>{lesson.title}</strong>
+                      <small>{lesson.summary}</small>
+                    </span>
+                    <span className="course-lesson-action">
+                      {isComplete ? "다시 보기" : "학습하기"}
+                      <ArrowRight size={17} />
+                    </span>
+                  </Link>
+                );
+              });
+            })}
+          </div>
+        ) : (
+          <div className="course-empty">
+            <GraduationCap size={28} />
+            <strong>아직 공개된 강의가 없습니다.</strong>
+            <p>새 강의가 준비되면 이곳에 표시됩니다.</p>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 function SectionTitle({
   title,
   sub,
@@ -1448,13 +1550,50 @@ function Auth({
     name: string;
     email: string;
     password: string;
+    inviteToken: string;
   }) => Promise<void>;
 }) {
   const [name, setName] = useState(""),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
+    [inviteToken, setInviteToken] = useState(""),
+    [invitationState, setInvitationState] = useState<
+      "idle" | "loading" | "valid" | "invalid"
+    >(registerMode ? "loading" : "idle"),
     [error, setError] = useState(""),
     [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    if (!registerMode) return;
+    const token =
+      new URLSearchParams(window.location.search).get("invite") ?? "";
+    setInviteToken(token);
+    if (!token) {
+      setInvitationState("invalid");
+      setError("회원가입에는 관리자가 발급한 초대 링크가 필요합니다.");
+      return;
+    }
+    let active = true;
+    setInvitationState("loading");
+    void getInvitation(token)
+      .then((invitation) => {
+        if (!active) return;
+        setEmail(invitation.email);
+        setInvitationState("valid");
+        setError("");
+      })
+      .catch((reason) => {
+        if (!active) return;
+        setInvitationState("invalid");
+        setError(
+          reason instanceof ApiError
+            ? reason.message
+            : "초대 정보를 확인하지 못했습니다.",
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, [registerMode]);
   return (
     <div className="auth-layout">
       <div className="auth-story">
@@ -1487,6 +1626,7 @@ function Auth({
               email: email.trim().toLowerCase(),
               name: name.trim(),
               password,
+              inviteToken,
             });
           } catch (caught) {
             setError(
@@ -1502,7 +1642,9 @@ function Auth({
         <h2>{registerMode ? "학습의 첫걸음" : "다시 만나 반가워요"}</h2>
         <p>
           {registerMode
-            ? "계정을 만들고 학습을 시작하세요."
+            ? invitationState === "valid"
+              ? "초대받은 이메일로 계정을 만드세요."
+              : "관리자가 발급한 초대 링크를 확인하고 있어요."
             : "이메일과 비밀번호로 로그인하세요."}
         </p>
         <div className="auth-note">
@@ -1528,6 +1670,7 @@ function Auth({
             type="email"
             autoComplete="email"
             required
+            readOnly={registerMode}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="learner@example.com"
@@ -1549,17 +1692,21 @@ function Auth({
         <button
           className="button primary full"
           type="submit"
-          disabled={submitting}
+          aria-disabled={registerMode && invitationState !== "valid"}
+          disabled={submitting || (registerMode && invitationState !== "valid")}
         >
           {submitting ? "처리 중…" : registerMode ? "계정 만들기" : "로그인"}
           <ArrowRight size={16} />
         </button>
-        <p className="auth-switch">
-          {registerMode ? "이미 계정이 있나요?" : "처음 오셨나요?"}{" "}
-          <Link href={registerMode ? "/login" : "/register"}>
-            {registerMode ? "로그인" : "회원가입"}
-          </Link>
-        </p>
+        {registerMode ? (
+          <p className="auth-switch">
+            이미 계정이 있나요? <Link href="/login">로그인</Link>
+          </p>
+        ) : (
+          <p className="auth-switch">
+            회원가입은 관리자 초대 링크로만 가능합니다.
+          </p>
+        )}
       </form>
     </div>
   );

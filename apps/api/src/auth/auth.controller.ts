@@ -1,13 +1,20 @@
-import { Body, Controller, Get, Post, Req, Res } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Req, Res } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import type { Request, Response } from "express";
 import { CurrentUser } from "../common/current-user.decorator";
 import { Public } from "../common/public.decorator";
-import type { AuthenticatedUser, RequestWithContext } from "../common/request-context";
+import type {
+  AuthenticatedUser,
+  RequestWithContext,
+} from "../common/request-context";
 import { AuthService } from "./auth.service";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
-import { clearSessionCookie, sessionCookieName, sessionCookieOptions } from "./session-cookie";
+import {
+  clearSessionCookie,
+  sessionCookieName,
+  sessionCookieOptions,
+} from "./session-cookie";
 
 @ApiTags("auth")
 @Controller()
@@ -28,8 +35,18 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ) {
     const result = await this.auth.register(dto, request);
-    response.cookie(sessionCookieName(), result.token, sessionCookieOptions(result.maxAgeMs));
+    response.cookie(
+      sessionCookieName(),
+      result.token,
+      sessionCookieOptions(result.maxAgeMs),
+    );
     return { user: result.user };
+  }
+
+  @Public()
+  @Get("auth/invitations/:token")
+  invitation(@Param("token") token: string) {
+    return this.auth.getInvitation(token);
   }
 
   @Public()
@@ -40,7 +57,11 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ) {
     const result = await this.auth.login(dto, request);
-    response.cookie(sessionCookieName(), result.token, sessionCookieOptions(result.maxAgeMs));
+    response.cookie(
+      sessionCookieName(),
+      result.token,
+      sessionCookieOptions(result.maxAgeMs),
+    );
     return { user: result.user };
   }
 

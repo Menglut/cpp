@@ -17,6 +17,7 @@ import { AdminService } from "./admin.service";
 import {
   CreateLessonDto,
   CreateLessonCategoryDto,
+  CreateInvitationDto,
   CreateProblemDto,
   LinkLessonProblemsDto,
   SaveTestCasesDto,
@@ -31,6 +32,27 @@ import {
 @Controller("admin")
 export class AdminController {
   constructor(private readonly admin: AdminService) {}
+
+  @Get("invitations")
+  listInvitations() {
+    return this.admin.listInvitations();
+  }
+
+  @Post("invitations")
+  createInvitation(
+    @Body() dto: CreateInvitationDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.admin.createInvitation(dto, user);
+  }
+
+  @Delete("invitations/:id")
+  revokeInvitation(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.admin.revokeInvitation(id, user);
+  }
 
   @Get("content")
   listContent() {

@@ -247,6 +247,16 @@ export type AdminValidation = {
   finishedAt: string | null;
 };
 
+export type AdminInvitation = {
+  id: string;
+  email: string;
+  expiresAt: string;
+  acceptedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  invitedBy: { nickname: string; email: string };
+};
+
 type AuthResponse = { user: ApiUser };
 type ApiErrorBody = {
   message?: string | string[];
@@ -338,11 +348,18 @@ export function register(input: {
   email: string;
   password: string;
   nickname: string;
+  inviteToken: string;
 }) {
   return request<AuthResponse>("/auth/register", {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export function getInvitation(token: string) {
+  return request<{ email: string; expiresAt: string }>(
+    `/auth/invitations/${encodeURIComponent(token)}`,
+  );
 }
 
 export function login(input: { email: string; password: string }) {
@@ -442,6 +459,31 @@ export function setLessonCompletion(slug: string, completed: boolean) {
 
 export function listAdminContent() {
   return request<AdminContent>("/admin/content");
+}
+
+export async function listAdminInvitations() {
+  return (await request<{ items: AdminInvitation[] }>("/admin/invitations"))
+    .items;
+}
+
+export function createAdminInvitation(email: string) {
+  return request<{
+    id: string;
+    email: string;
+    expiresAt: string;
+    createdAt: string;
+    token: string;
+  }>("/admin/invitations", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function revokeAdminInvitation(id: string) {
+  return request<AdminInvitation>(
+    `/admin/invitations/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+  );
 }
 
 export function getAdminLesson(id: string) {

@@ -1,6 +1,17 @@
-import { IsEmail, IsString, Length, MaxLength, MinLength } from "class-validator";
+import {
+  IsEmail,
+  IsString,
+  Length,
+  MaxLength,
+  MinLength,
+} from "class-validator";
 
 export class RegisterDto {
+  @IsString()
+  @MinLength(32)
+  @MaxLength(256)
+  inviteToken!: string;
+
   @IsEmail()
   @MaxLength(320)
   email!: string;
