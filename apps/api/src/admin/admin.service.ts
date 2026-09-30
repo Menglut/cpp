@@ -155,7 +155,7 @@ export class AdminService {
         }),
         this.prisma.client.category.findMany({ orderBy: { name: "asc" } }),
         this.prisma.client.lessonCategory.findMany({
-          orderBy: [{ order: "asc" }, { title: "asc" }],
+          orderBy: [{ language: "asc" }, { order: "asc" }, { title: "asc" }],
           include: { _count: { select: { lessons: true } } },
         }),
       ],
@@ -370,9 +370,13 @@ export class AdminService {
         where: { id },
       });
       if (
-        dto.slug &&
+        (dto.slug || dto.language) &&
         (await tx.lessonCategory.findFirst({
-          where: { slug: dto.slug, id: { not: id } },
+          where: {
+            slug: dto.slug ?? current.slug,
+            language: dto.language ?? current.language,
+            id: { not: id },
+          },
           select: { id: true },
         }))
       ) {
@@ -647,6 +651,7 @@ export class AdminService {
           timeLimitMs: source.timeLimitMs,
           memoryLimitKiB: source.memoryLimitKiB,
           starterCode: source.starterCode,
+          starterCodeC11: source.starterCodeC11,
           referenceSource: source.referenceSource,
           testCases: {
             create: source.testCases.map(

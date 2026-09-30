@@ -298,9 +298,16 @@ async function seed(): Promise<void> {
   const lessonCategoryIds = new Map<string, string>();
   for (const [index, [slug, title, summary]] of lessonCategories.entries()) {
     const category = await prisma.lessonCategory.upsert({
-      where: { slug },
+      where: { language_slug: { language: "CPP", slug } },
       update: { title, summary, order: index + 1, status: "PUBLISHED" },
-      create: { slug, title, summary, order: index + 1, status: "PUBLISHED" },
+      create: {
+        language: "CPP",
+        slug,
+        title,
+        summary,
+        order: index + 1,
+        status: "PUBLISHED",
+      },
     });
     lessonCategoryIds.set(slug, category.id);
   }

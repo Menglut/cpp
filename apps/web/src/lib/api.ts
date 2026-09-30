@@ -5,13 +5,22 @@ export type ApiUser = {
   role: "USER" | "ADMIN";
 };
 
+export type LessonLanguage = "C" | "CPP";
+export type ExecutionLanguage = "C11" | "CPP17";
+
 export type LessonSummary = {
   id: string;
   slug: string;
   title: string;
   summary: string;
   order: number;
-  category: { id: string; slug: string; title: string; order: number };
+  category: {
+    id: string;
+    slug: string;
+    title: string;
+    order: number;
+    language: LessonLanguage;
+  };
 };
 
 export type LessonCategory = {
@@ -20,6 +29,7 @@ export type LessonCategory = {
   title: string;
   summary: string;
   order: number;
+  language: LessonLanguage;
   lessons: LessonSummary[];
 };
 
@@ -56,6 +66,7 @@ export type ProblemDetail = ProblemSummary & {
     timeLimitMs: number;
     memoryLimitKiB: number;
     starterCode: string;
+    starterCodeC11: string;
     testCases: Array<{
       id: string;
       position: number;
@@ -98,7 +109,7 @@ export type RunResult = {
 export type SubmissionSummary = {
   id: string;
   status: ExecutionStatus;
-  language: "CPP17";
+  language: ExecutionLanguage;
   executionTimeMs: number | null;
   memoryUsageKiB: number | null;
   checkedCount: number;
@@ -154,6 +165,7 @@ export type AdminContent = {
   categories: Array<{ id: string; slug: string; name: string }>;
   lessonCategories: Array<{
     id: string;
+    language: LessonLanguage;
     slug: string;
     title: string;
     summary: string;
@@ -210,6 +222,7 @@ export type AdminProblemVersion = {
   timeLimitMs: number;
   memoryLimitKiB: number;
   starterCode: string;
+  starterCodeC11: string;
   referenceSource: string | null;
   validatedAt: string | null;
   publishedAt: string | null;
@@ -377,14 +390,16 @@ export async function listLessons() {
   return (await request<{ items: LessonSummary[] }>("/lessons")).items;
 }
 
-export function getLessonCatalog() {
+export function getLessonCatalog(language: LessonLanguage = "CPP") {
   return request<{ items: LessonSummary[]; categories: LessonCategory[] }>(
-    "/lessons",
+    `/lessons?language=${language}`,
   );
 }
 
-export function getLesson(slug: string) {
-  return request<LessonDetail>(`/lessons/${encodeURIComponent(slug)}`);
+export function getLesson(slug: string, language: LessonLanguage = "CPP") {
+  return request<LessonDetail>(
+    `/lessons/${encodeURIComponent(slug)}?language=${language}`,
+  );
 }
 
 export async function listProblems() {
@@ -402,7 +417,7 @@ export async function listProblemCategories() {
 
 export function createRun(input: {
   problemVersionId: string;
-  language: "CPP17";
+  language: ExecutionLanguage;
   sourceCode: string;
   stdin: string;
 }) {
@@ -419,7 +434,7 @@ export function getRun(id: string) {
 export function createSubmission(
   input: {
     problemVersionId: string;
-    language: "CPP17";
+    language: ExecutionLanguage;
     sourceCode: string;
   },
   idempotencyKey: string,
@@ -509,6 +524,7 @@ export function createAdminLesson(input: {
 }
 
 export type AdminLessonCategoryInput = {
+  language: LessonLanguage;
   slug: string;
   title: string;
   summary: string;
@@ -627,6 +643,7 @@ export type AdminProblemInput = {
   timeLimitMs: number;
   memoryLimitKiB: number;
   starterCode: string;
+  starterCodeC11: string;
   referenceSource: string;
 };
 

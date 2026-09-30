@@ -251,6 +251,7 @@ async function main() {
         timeLimitMs: 1000,
         memoryLimitKiB: 131072,
         starterCode: "#include <iostream>\nint main() { return 0; }",
+        starterCodeC11: "#include <stdio.h>\nint main(void) { return 0; }",
         referenceSource:
           "#include <iostream>\nint main() { std::cout << 2 << '\\n'; }",
       }),

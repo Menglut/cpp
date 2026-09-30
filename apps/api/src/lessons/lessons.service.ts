@@ -1,13 +1,14 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
+import { LessonLanguage } from "../generated/prisma/enums";
 
 @Injectable()
 export class LessonsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list() {
+  async list(language: LessonLanguage = LessonLanguage.CPP) {
     const categories = await this.prisma.client.lessonCategory.findMany({
-      where: { status: "PUBLISHED" },
+      where: { language, status: "PUBLISHED" },
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
       select: {
         id: true,
@@ -15,6 +16,7 @@ export class LessonsService {
         title: true,
         summary: true,
         order: true,
+        language: true,
         lessons: {
           where: { status: "PUBLISHED" },
           orderBy: [{ order: "asc" }, { createdAt: "asc" }],
@@ -42,9 +44,13 @@ export class LessonsService {
     return { categories, items, nextCursor: null };
   }
 
-  async get(slug: string) {
+  async get(slug: string, language: LessonLanguage = LessonLanguage.CPP) {
     const lesson = await this.prisma.client.lesson.findFirst({
-      where: { slug, status: "PUBLISHED", category: { status: "PUBLISHED" } },
+      where: {
+        slug,
+        status: "PUBLISHED",
+        category: { language, status: "PUBLISHED" },
+      },
       select: {
         id: true,
         slug: true,
@@ -53,7 +59,13 @@ export class LessonsService {
         body: true,
         order: true,
         category: {
-          select: { id: true, slug: true, title: true, order: true },
+          select: {
+            id: true,
+            slug: true,
+            title: true,
+            order: true,
+            language: true,
+          },
         },
         problems: {
           where: { problem: { status: "PUBLISHED" } },

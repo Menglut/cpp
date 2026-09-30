@@ -71,6 +71,7 @@ export class ProblemsService {
             timeLimitMs: true,
             memoryLimitKiB: true,
             starterCode: true,
+            starterCodeC11: true,
             testCases: {
               where: { visibility: "EXAMPLE" },
               orderBy: { position: "asc" },

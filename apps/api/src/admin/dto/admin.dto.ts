@@ -15,6 +15,7 @@ import {
 } from "class-validator";
 import {
   ComparatorType,
+  LessonLanguage,
   TestCaseVisibility,
 } from "../../generated/prisma/enums";
 
@@ -42,6 +43,7 @@ export class UpdateLessonDto {
 }
 
 export class CreateLessonCategoryDto {
+  @IsEnum(LessonLanguage) language: LessonLanguage = LessonLanguage.CPP;
   @IsString() @Length(1, 100) slug!: string;
   @IsString() @Length(1, 200) title!: string;
   @IsString() @MaxLength(500) summary = "";
@@ -49,6 +51,7 @@ export class CreateLessonCategoryDto {
 }
 
 export class UpdateLessonCategoryDto {
+  @IsOptional() @IsEnum(LessonLanguage) language?: LessonLanguage;
   @IsOptional() @IsString() @Length(1, 100) slug?: string;
   @IsOptional() @IsString() @Length(1, 200) title?: string;
   @IsOptional() @IsString() @MaxLength(500) summary?: string;
@@ -69,6 +72,7 @@ export class CreateProblemDto {
   @IsInt() @Min(100) @Max(10000) timeLimitMs = 1000;
   @IsInt() @Min(16384) @Max(524288) memoryLimitKiB = 131072;
   @IsString() starterCode!: string;
+  @IsString() starterCodeC11!: string;
   @IsOptional() @IsString() referenceSource?: string;
 }
 
@@ -84,6 +88,7 @@ export class UpdateProblemDto {
   @IsOptional() @IsInt() @Min(100) @Max(10000) timeLimitMs?: number;
   @IsOptional() @IsInt() @Min(16384) @Max(524288) memoryLimitKiB?: number;
   @IsOptional() @IsString() starterCode?: string;
+  @IsOptional() @IsString() starterCodeC11?: string;
   @IsOptional() @IsString() referenceSource?: string;
 }
 

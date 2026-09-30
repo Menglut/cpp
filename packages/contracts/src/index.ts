@@ -1,5 +1,5 @@
 export type Role = "USER" | "ADMIN";
-export type Language = "CPP17";
+export type Language = "C11" | "CPP17";
 export type Comparator = "TOKEN" | "EXACT";
 
 export type UserSummary = {

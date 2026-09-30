@@ -1,5 +1,7 @@
 export const starter =
   "#include <iostream>\nusing namespace std;\n\nint main() {\n    // 여기에 코드를 작성하세요.\n    return 0;\n}\n";
+export const starterC11 =
+  "#include <stdio.h>\n\nint main(void) {\n    // 여기에 코드를 작성하세요.\n    return 0;\n}\n";
 export type Problem = {
   id: number;
   title: string;

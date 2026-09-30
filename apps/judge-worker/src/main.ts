@@ -126,9 +126,24 @@ async function createProvider(
     baseUrl: requiredEnvironment("JUDGE0_URL"),
     authHeader: process.env.JUDGE0_AUTH_HEADER ?? "X-Judge0-Token",
     authToken: requiredEnvironment("JUDGE0_AUTH_TOKEN"),
-    languageId: positiveNumberEnvironment("JUDGE0_CPP17_LANGUAGE_ID", 54),
-    compilerVersion:
-      process.env.JUDGE0_COMPILER_VERSION ?? "C++17 via Judge0 CE 1.13.1",
+    languages: {
+      C11: {
+        languageId: positiveNumberEnvironment("JUDGE0_C11_LANGUAGE_ID", 50),
+        compilerVersion:
+          process.env.JUDGE0_C11_COMPILER_VERSION ??
+          "C (GCC) via Judge0 CE 1.13.1",
+      },
+      CPP17: {
+        languageId: positiveNumberEnvironment(
+          "JUDGE0_CPP17_LANGUAGE_ID",
+          54,
+        ),
+        compilerVersion:
+          process.env.JUDGE0_CPP17_COMPILER_VERSION ??
+          process.env.JUDGE0_COMPILER_VERSION ??
+          "C++17 via Judge0 CE 1.13.1",
+      },
+    },
     requestTimeoutMs: positiveNumberEnvironment(
       "JUDGE0_REQUEST_TIMEOUT_MS",
       10000,

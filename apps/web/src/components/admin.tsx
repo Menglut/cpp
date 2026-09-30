@@ -51,9 +51,10 @@ import {
   type ContentStatus,
   type ValidationStatus,
 } from "@/lib/api";
-import { starter } from "@/lib/data";
+import { starter, starterC11 } from "@/lib/data";
 import ConfirmDialog from "./confirm-dialog";
 import Markdown from "./markdown";
+import VisualMarkdownEditor from "./visual-markdown-editor";
 
 type TestCase = {
   id: string;
@@ -83,6 +84,7 @@ type ContentDraft = {
   memory: string;
   checker: "TOKEN" | "EXACT";
   starterCode: string;
+  starterCodeC11: string;
   reference: string;
   tests: TestCase[];
   categoryIds: string[];
@@ -114,6 +116,7 @@ const blank = (kind: "문제" | "강의" = "문제"): ContentDraft => ({
   memory: "128",
   checker: "TOKEN",
   starterCode: starter,
+  starterCodeC11: starterC11,
   reference: starter,
   tests: [],
   categoryIds: [],
@@ -147,7 +150,9 @@ export default function Admin({
     "ALL",
   );
   const [tab, setTab] = useState("content");
-  const [preview, setPreview] = useState(false);
+  const [editorMode, setEditorMode] = useState<"visual" | "source" | "preview">(
+    "visual",
+  );
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -217,7 +222,7 @@ export default function Admin({
       });
       setTab("content");
       setSection("lessons");
-      setPreview(false);
+      setEditorMode("visual");
       setError(null);
     } catch (reason) {
       notify(messageOf(reason));
@@ -250,6 +255,7 @@ export default function Admin({
         memory: String(Math.max(1, Math.round(version.memoryLimitKiB / 1024))),
         checker: version.comparator,
         starterCode: version.starterCode,
+        starterCodeC11: version.starterCodeC11,
         reference: version.referenceSource ?? "",
         tests: version.testCases.map((test) => ({
           id: test.id,
@@ -267,7 +273,7 @@ export default function Admin({
       });
       setTab("content");
       setSection("problems");
-      setPreview(false);
+      setEditorMode("visual");
       setError(null);
     } catch (reason) {
       notify(messageOf(reason));
@@ -331,6 +337,7 @@ export default function Admin({
         timeLimitMs: numberValue(draft.time, "시간 제한"),
         memoryLimitKiB: numberValue(draft.memory, "메모리 제한") * 1024,
         starterCode: draft.starterCode,
+        starterCodeC11: draft.starterCodeC11,
         referenceSource: draft.reference,
       };
       let problemId = draft.id;
@@ -574,7 +581,7 @@ export default function Admin({
                       (item) => item.status !== "ARCHIVED",
                     )?.id ?? "";
                 setDraft(next);
-                setPreview(false);
+                setEditorMode("visual");
                 setTab("content");
               }}
             >
@@ -826,79 +833,108 @@ export default function Admin({
                     />
                   </label>
                 )}
-                <div className="editor-toolbar">
-                  <div className="markdown-tools">
+                <div className="editor-mode-bar">
+                  <div
+                    className="editor-mode-switch"
+                    aria-label="본문 편집 방식"
+                  >
                     <button
                       type="button"
-                      onClick={() => insertMarkdown("## ", "", "제목")}
+                      className={editorMode === "visual" ? "active" : ""}
+                      onClick={() => setEditorMode("visual")}
                     >
-                      H2
+                      시각적 편집
                     </button>
                     <button
                       type="button"
-                      onClick={() => insertMarkdown("**", "**", "굵게")}
+                      className={editorMode === "source" ? "active" : ""}
+                      onClick={() => setEditorMode("source")}
                     >
-                      B
+                      Markdown 원문
                     </button>
                     <button
                       type="button"
-                      onClick={() => insertMarkdown("[", "](https://)", "링크")}
+                      className={editorMode === "preview" ? "active" : ""}
+                      onClick={() => setEditorMode("preview")}
                     >
-                      링크
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        insertMarkdown("![", "](/이미지-주소)", "이미지 설명")
-                      }
-                    >
-                      이미지
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        insertMarkdown("```cpp\n", "\n```", "// C++ 코드")
-                      }
-                    >
-                      C++
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        insertMarkdown(":::tip\n", "\n:::", "도움말")
-                      }
-                    >
-                      TIP
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        insertMarkdown(
-                          "| 항목 | 설명 |\n| --- | --- |\n| ",
-                          " | 내용 |",
-                          "값",
-                        )
-                      }
-                    >
-                      표
+                      미리보기
                     </button>
                   </div>
-                  <button
-                    className="text-button"
-                    type="button"
-                    onClick={() => setPreview((value) => !value)}
-                  >
-                    {preview ? "편집하기" : "미리보기"}
-                  </button>
+                  <small>
+                    시각적 편집에서 <kbd>/</kbd>를 누르면 제목, 목록, 코드, 표를
+                    선택할 수 있습니다.
+                  </small>
                 </div>
-                {preview ? (
+                {editorMode === "source" && (
+                  <div className="editor-toolbar">
+                    <div className="markdown-tools">
+                      <button
+                        type="button"
+                        onClick={() => insertMarkdown("## ", "", "제목")}
+                      >
+                        H2
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => insertMarkdown("**", "**", "굵게")}
+                      >
+                        B
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          insertMarkdown("[", "](https://)", "링크")
+                        }
+                      >
+                        링크
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          insertMarkdown("![", "](/이미지-주소)", "이미지 설명")
+                        }
+                      >
+                        이미지
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          insertMarkdown("```cpp\n", "\n```", "// C++ 코드")
+                        }
+                      >
+                        C++
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          insertMarkdown(":::tip\n", "\n:::", "도움말")
+                        }
+                      >
+                        TIP
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          insertMarkdown(
+                            "| 항목 | 설명 |\n| --- | --- |\n| ",
+                            " | 내용 |",
+                            "값",
+                          )
+                        }
+                      >
+                        표
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {editorMode === "preview" ? (
                   <div className="admin-preview">
                     <h3>{draft.title || "콘텐츠 제목"}</h3>
                     <Markdown>
                       {draft.body || "작성한 본문이 여기에 표시됩니다."}
                     </Markdown>
                   </div>
-                ) : (
+                ) : editorMode === "source" ? (
                   <label>
                     본문 (Markdown)
                     <textarea
@@ -908,7 +944,18 @@ export default function Admin({
                       value={draft.body}
                       onChange={(event) => change("body", event.target.value)}
                     />
+                    <small>
+                      도움말 같은 고급 블록은 <code>:::tip</code> 형식으로
+                      이곳에서 편집할 수 있습니다.
+                    </small>
                   </label>
+                ) : (
+                  <VisualMarkdownEditor
+                    documentKey={`${draft.kind}:${draft.id || "new"}:${draft.versionId}`}
+                    disabled={busy}
+                    value={draft.body}
+                    onChange={(value) => change("body", value)}
+                  />
                 )}
 
                 {draft.kind === "문제" ? (
@@ -1031,7 +1078,7 @@ export default function Admin({
                   </select>
                 </label>
                 <label>
-                  기본 코드
+                  C++17 기본 코드
                   <textarea
                     rows={8}
                     disabled={busy}
@@ -1041,14 +1088,26 @@ export default function Admin({
                     }
                   />
                 </label>
+                <label>
+                  C11 기본 코드
+                  <textarea
+                    rows={8}
+                    disabled={busy}
+                    value={draft.starterCodeC11}
+                    onChange={(event) =>
+                      change("starterCodeC11", event.target.value)
+                    }
+                  />
+                </label>
               </>
             )}
 
             {tab === "tests" && (
               <>
                 <div className="auth-note">
-                  공개 예제 1개와 숨김 테스트 3개 이상, 기준 코드가 있어야
-                  검증할 수 있습니다.
+                  공개 예제 1개와 숨김 테스트 3개 이상, C++17 기준 코드가
+                  있어야 검증할 수 있습니다. 같은 테스트가 C11 제출에도
+                  사용됩니다.
                 </div>
                 {draft.tests.map((test, index) => (
                   <div className="test-case" key={test.id}>
@@ -1164,7 +1223,7 @@ export default function Admin({
                   테스트 추가
                 </button>
                 <label className="reference-code">
-                  기준 정답 코드
+                  C++17 기준 정답 코드
                   <textarea
                     rows={9}
                     disabled={busy}
@@ -1283,6 +1342,7 @@ function LessonCategoryManager({
 }) {
   const [selectedId, setSelectedId] = useState("");
   const selected = categories.find((item) => item.id === selectedId);
+  const [language, setLanguage] = useState<"C" | "CPP">("CPP");
   const [slug, setSlug] = useState("");
   const [title, setTitle] = useState("");
   const [summary, setSummary] = useState("");
@@ -1290,6 +1350,7 @@ function LessonCategoryManager({
 
   function choose(category?: AdminLessonCategory) {
     setSelectedId(category?.id ?? "");
+    setLanguage(category?.language ?? "CPP");
     setSlug(category?.slug ?? "");
     setTitle(category?.title ?? "");
     setSummary(category?.summary ?? "");
@@ -1333,6 +1394,7 @@ function LessonCategoryManager({
             <div>
               <strong>{category.title}</strong>
               <small>
+                {category.language === "C" ? "C 언어" : "C++"} ·{" "}
                 {statusText[category.status]} · 강의 {category._count.lessons}개
               </small>
             </div>
@@ -1346,12 +1408,14 @@ function LessonCategoryManager({
             () =>
               selected
                 ? updateAdminLessonCategory(selected.id, {
+                    language,
                     slug: slug.trim(),
                     title: title.trim(),
                     summary: summary.trim(),
                     order: numberValue(order, "표시 순서"),
                   })
                 : createAdminLessonCategory({
+                    language,
                     slug: slug.trim(),
                     title: title.trim(),
                     summary: summary.trim(),
@@ -1367,6 +1431,17 @@ function LessonCategoryManager({
             <span className="badge gray">{statusText[selected.status]}</span>
           )}
         </div>
+        <label>
+          학습 언어
+          <select
+            disabled={busy}
+            value={language}
+            onChange={(event) => setLanguage(event.target.value as "C" | "CPP")}
+          >
+            <option value="CPP">C++</option>
+            <option value="C">C 언어</option>
+          </select>
+        </label>
         <div className="two-fields">
           <label>
             Slug

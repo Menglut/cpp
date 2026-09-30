@@ -7,7 +7,10 @@ export type ProviderStatus =
   | "OLE"
   | "SYSTEM_ERROR";
 
+export type ExecutionLanguage = "C11" | "CPP17";
+
 export type ProviderRequest = {
+  language: ExecutionLanguage;
   sourceCode: string;
   stdin: string;
   expectedOutput?: string;

@@ -46,8 +46,10 @@ import {
   register,
   setLessonCompletion,
   type ApiUser,
+  type ExecutionLanguage,
   type LessonDetail,
   type LessonCategory,
+  type LessonLanguage,
   type LessonSummary,
   type ProblemCategory,
   type ProblemDetail,
@@ -69,6 +71,37 @@ type User = {
   role: "USER" | "ADMIN";
 };
 const toUser = (user: ApiUser): User => ({ ...user, name: user.nickname });
+const executionLanguageMeta: Record<
+  ExecutionLanguage,
+  { label: string; fileName: string; editorLanguage: "c" | "cpp" }
+> = {
+  C11: { label: "C11", fileName: "main.c", editorLanguage: "c" },
+  CPP17: {
+    label: "C++17",
+    fileName: "main.cpp",
+    editorLanguage: "cpp",
+  },
+};
+const lessonLanguageMeta: Record<
+  LessonLanguage,
+  { slug: "c" | "cpp"; label: string; title: string; description: string }
+> = {
+  C: {
+    slug: "c",
+    label: "C 언어",
+    title: "C 언어 학습",
+    description: "기본 문법부터 포인터와 메모리까지 차근차근 배워 보세요.",
+  },
+  CPP: {
+    slug: "cpp",
+    label: "C++",
+    title: "C++ 학습",
+    description:
+      "처음 만나는 문법부터 STL까지. 이해의 폭을 한 단계씩 넓혀 보세요.",
+  },
+};
+const lessonBasePath = (language: LessonLanguage) =>
+  `/learn/${lessonLanguageMeta[language].slug}`;
 function read<T>(key: string, fallback: T): T {
   try {
     return JSON.parse(localStorage.getItem(key) || "null") ?? fallback;
@@ -172,8 +205,20 @@ function CopyCode({ code }: { code: string }) {
 export default function Studio() {
   const path = usePathname(),
     router = useRouter();
+  const parts = path.split("/").filter(Boolean);
+  const lessonLanguage: LessonLanguage =
+    parts[0] === "learn" && parts[1] === "c" ? "C" : "CPP";
+  const namespacedLessonRoute =
+    parts[0] === "learn" && (parts[1] === "c" || parts[1] === "cpp");
+  const lessonRouteSlug =
+    parts[0] === "learn"
+      ? namespacedLessonRoute
+        ? parts[2]
+        : parts[1]
+      : undefined;
   const [user, setUser] = useState<User | null>(null),
     [ready, setReady] = useState(false),
+    [lessonCatalogLoading, setLessonCatalogLoading] = useState(true),
     [lessons, setLessons] = useState<LessonSummary[]>([]),
     [lessonCategories, setLessonCategories] = useState<LessonCategory[]>([]),
     [problems, setProblems] = useState<ProblemSummary[]>([]),
@@ -193,22 +238,17 @@ export default function Studio() {
     let active = true;
     Promise.allSettled([
       getCurrentUser(),
-      getLessonCatalog(),
       listProblems(),
       listProblemCategories(),
     ])
-      .then(([current, lessonList, problemList, categoryList]) => {
+      .then(([current, problemList, categoryList]) => {
         if (!active) return;
         if (current.status === "fulfilled")
           setUser(current.value ? toUser(current.value) : null);
-        if (lessonList.status === "fulfilled") {
-          setLessons(lessonList.value.items);
-          setLessonCategories(lessonList.value.categories);
-        }
         if (problemList.status === "fulfilled") setProblems(problemList.value);
         if (categoryList.status === "fulfilled")
           setCategories(categoryList.value);
-        const failed = [current, lessonList, problemList, categoryList].find(
+        const failed = [current, problemList, categoryList].find(
           (result) => result.status === "rejected",
         );
         if (failed?.status === "rejected") {
@@ -228,15 +268,40 @@ export default function Studio() {
   }, []);
   useEffect(() => {
     let active = true;
-    const parts = path.split("/").filter(Boolean);
+    setLessonCatalogLoading(true);
+    setLessons([]);
+    setLessonCategories([]);
+    getLessonCatalog(lessonLanguage)
+      .then((catalog) => {
+        if (!active) return;
+        setLessons(catalog.items);
+        setLessonCategories(catalog.categories);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setToast(
+          error instanceof ApiError
+            ? error.message
+            : "강의 목록을 불러오지 못했습니다.",
+        );
+      })
+      .finally(() => {
+        if (active) setLessonCatalogLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [lessonLanguage]);
+  useEffect(() => {
+    let active = true;
     const load = async () => {
       setDetailError("");
       if (!ready) return;
-      if (parts[0] === "learn" && parts[1]) {
+      if (parts[0] === "learn" && lessonRouteSlug) {
         setDetailLoading(true);
         setLessonDetail(null);
         try {
-          const lesson = await getLesson(parts[1]);
+          const lesson = await getLesson(lessonRouteSlug, lessonLanguage);
           if (active) setLessonDetail(lesson);
         } catch (error) {
           if (active)
@@ -293,7 +358,7 @@ export default function Studio() {
     return () => {
       active = false;
     };
-  }, [path, ready, user]);
+  }, [path, ready, user, lessonLanguage, lessonRouteSlug]);
   useEffect(() => {
     let active = true;
     if (!user) {
@@ -417,7 +482,8 @@ export default function Studio() {
       );
     }
   }
-  const parts = path.split("/").filter(Boolean);
+  const isLessonCatalogPath =
+    path === "/learn" || path === "/learn/c" || path === "/learn/cpp";
   let content: ReactNode;
   if (!ready)
     content = <div className="loading">학습 공간을 준비하고 있어요…</div>;
@@ -435,22 +501,29 @@ export default function Studio() {
     ) : (
       <GuestHome />
     );
-  else if (path === "/learn")
+  else if (isLessonCatalogPath)
     content = (
       <>
         <PageTitle
           eyebrow="CURRICULUM"
-          title="C++ 학습"
-          description="처음 만나는 문법부터 STL까지. 이해의 폭을 한 단계씩 넓혀 보세요."
+          title={lessonLanguageMeta[lessonLanguage].title}
+          description={lessonLanguageMeta[lessonLanguage].description}
         />
-        <LessonCatalog
-          categories={lessonCategories}
-          lessonCount={lessons.length}
-          completed={completed}
-        />
+        <LanguagePicker language={lessonLanguage} />
+        {lessonCatalogLoading ? (
+          <div className="loading">강의 목록을 불러오고 있어요…</div>
+        ) : (
+          <LessonCatalog
+            key={lessonLanguage}
+            language={lessonLanguage}
+            categories={lessonCategories}
+            lessonCount={lessons.length}
+            completed={completed}
+          />
+        )}
       </>
     );
-  else if (parts[0] === "learn" && parts[1])
+  else if (parts[0] === "learn" && lessonRouteSlug)
     content = detailLoading ? (
       <div className="loading">강의를 불러오고 있어요…</div>
     ) : detailError ? (
@@ -461,6 +534,7 @@ export default function Studio() {
         lessons={lessons}
         categories={lessonCategories}
         completed={completed}
+        language={lessonLanguage}
         user={user}
         onCompletionChange={updateLessonCompletion}
       />
@@ -555,7 +629,10 @@ export default function Studio() {
           <span>
             {new Date(submissionDetail.createdAt).toLocaleString("ko-KR")}
           </span>
-          <span>C++17 · 문제 v{submissionDetail.problemVersion.version}</span>
+          <span>
+            {executionLanguageMeta[submissionDetail.language].label} · 문제 v
+            {submissionDetail.problemVersion.version}
+          </span>
           <span>
             {submissionDetail.executionTimeMs ?? "측정 없음"} ms ·{" "}
             {submissionDetail.memoryUsageKiB
@@ -569,7 +646,9 @@ export default function Studio() {
         </div>
         <div className="code-block">
           <div>
-            <span>제출 소스 · main.cpp</span>
+            <span>
+              제출 소스 · {executionLanguageMeta[submissionDetail.language].fileName}
+            </span>
             <CopyCode code={submissionDetail.sourceCode} />
           </div>
           <HighlightedCode code={submissionDetail.sourceCode} />
@@ -614,7 +693,7 @@ export default function Studio() {
           <nav aria-label="주요 메뉴">
             {[
               ["/", "홈"],
-              ["/learn", "C++ 학습"],
+              ["/learn", "언어 학습"],
               ["/problems", "문제"],
               ["/me", "내 학습"],
             ].map(([href, label]) => (
@@ -680,7 +759,7 @@ export default function Studio() {
         <Link href="/" className="footer-brand">
           CppStudy<span>한 줄의 코드, 한 걸음의 성장.</span>
         </Link>
-        <span>C++17 학습 공간 · MVP</span>
+        <span>C · C++ 학습 공간</span>
       </footer>
       {toast && (
         <div className="toast" role="status">
@@ -708,7 +787,7 @@ function GuestHome() {
             읽기 쉬운 개념 설명과 바로 이어지는 문제 풀이로
             <br />첫 코드부터 차근차근 실력을 쌓아 보세요.
           </p>
-          <A href="/learn/io">첫 강의 시작하기</A>
+          <A href="/learn/cpp/io">첫 강의 시작하기</A>
           <Link className="hero-link" href="/problems">
             문제 먼저 둘러보기 <ArrowUpRight size={15} />
           </Link>
@@ -812,6 +891,7 @@ function LessonView({
   lessons,
   categories,
   completed,
+  language,
   user,
   onCompletionChange,
 }: {
@@ -819,6 +899,7 @@ function LessonView({
   lessons: LessonSummary[];
   categories: LessonCategory[];
   completed: string[];
+  language: LessonLanguage;
   user: User | null;
   onCompletionChange: (slug: string, completed: boolean) => Promise<void>;
 }) {
@@ -832,10 +913,12 @@ function LessonView({
       (item) => item.slug === lesson.slug,
     ) ?? -1;
   const headings = extractMarkdownHeadings(lesson.body);
+  const basePath = lessonBasePath(language);
+  const languageLabel = lessonLanguageMeta[language].label;
   return (
     <div className="lesson-layout">
       <aside className="lesson-nav">
-        <span className="eyebrow">C++ 기초 과정</span>
+        <span className="eyebrow">{languageLabel} 기초 과정</span>
         {categories.map((category, sectionIndex) => (
           <div className="lesson-nav-group" key={category.id}>
             <strong>
@@ -844,7 +927,7 @@ function LessonView({
             {category.lessons.map((item, itemIndex) => (
               <Link
                 className={item.slug === lesson.slug ? "selected" : ""}
-                href={"/learn/" + item.slug}
+                href={`${basePath}/${item.slug}`}
                 key={item.slug}
               >
                 <span>
@@ -858,13 +941,13 @@ function LessonView({
         ))}
       </aside>
       <article className="article">
-        <Link className="breadcrumb" href="/learn">
-          C++ 학습 / {lesson.category.title}
+        <Link className="breadcrumb" href={basePath}>
+          {languageLabel} 학습 / {lesson.category.title}
         </Link>
         <h1>{lesson.title}</h1>
         <p className="article-intro">{lesson.summary}</p>
         <div className="article-meta">
-          LESSON {categoryIndex + 1}.{lessonIndex + 1} · C++17
+          LESSON {categoryIndex + 1}.{lessonIndex + 1} · {languageLabel}
         </div>
         <section id="concept">
           <Markdown>{lesson.body}</Markdown>
@@ -893,7 +976,8 @@ function LessonView({
             onClick={async () => {
               if (!user) {
                 router.push(
-                  "/login?next=" + encodeURIComponent(`/learn/${lesson.slug}`),
+                  "/login?next=" +
+                    encodeURIComponent(`${basePath}/${lesson.slug}`),
                 );
                 return;
               }
@@ -910,12 +994,12 @@ function LessonView({
           </button>
           <div>
             {index > 0 && (
-              <Link href={"/learn/" + lessons[index - 1].slug}>
+              <Link href={`${basePath}/${lessons[index - 1].slug}`}>
                 ← 이전 강의
               </Link>
             )}
             {index >= 0 && index < lessons.length - 1 && (
-              <Link href={"/learn/" + lessons[index + 1].slug}>
+              <Link href={`${basePath}/${lessons[index + 1].slug}`}>
                 다음 강의 →
               </Link>
             )}
@@ -1004,7 +1088,7 @@ function LearnerHome({
               <span>미해결 문제 {unsolved.length}개</span>
             )}
           </div>
-          <A href={nextLesson ? `/learn/${nextLesson.slug}` : "/problems"}>
+          <A href={nextLesson ? `/learn/cpp/${nextLesson.slug}` : "/problems"}>
             {nextLesson ? "계속 학습하기" : "문제에 도전하기"}
           </A>
         </div>
@@ -1091,11 +1175,98 @@ function PageTitle({
   );
 }
 
+function LanguagePicker({ language }: { language: LessonLanguage }) {
+  const router = useRouter();
+  const meta = lessonLanguageMeta[language];
+  const [open, setOpen] = useState(false);
+  return (
+    <section
+      className="language-picker"
+      aria-labelledby="language-picker-title"
+    >
+      <div className="language-picker-heading">
+        <span className="language-picker-icon">
+          <Code2 size={19} />
+        </span>
+        <div>
+          <strong id="language-picker-title">학습 언어 선택</strong>
+          <span>배우고 싶은 언어의 커리큘럼으로 이동합니다.</span>
+        </div>
+      </div>
+      <div
+        className={`language-select${open ? " open" : ""}`}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget))
+            setOpen(false);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setOpen(false);
+        }}
+      >
+        <button
+          type="button"
+          className="language-select-trigger"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <span className="language-select-symbol" aria-hidden="true">
+            {language === "C" ? "C" : "C++"}
+          </span>
+          <span className="language-select-copy">
+            <small>현재 학습 언어</small>
+            <strong>{meta.label}</strong>
+            <em>
+              {language === "C"
+                ? "문법 · 포인터 · 메모리"
+                : "객체 · STL · 알고리즘"}
+            </em>
+          </span>
+          <ChevronRight className="language-select-chevron" size={19} />
+        </button>
+        {open && (
+          <div className="language-select-menu" role="listbox">
+            {(["CPP", "C"] as const).map((item) => {
+              const itemMeta = lessonLanguageMeta[item];
+              return (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={language === item}
+                  className={language === item ? "selected" : ""}
+                  onClick={() => {
+                    setOpen(false);
+                    if (item !== language) router.push(lessonBasePath(item));
+                  }}
+                  key={item}
+                >
+                  <span>{item === "C" ? "C" : "C++"}</span>
+                  <span>
+                    <strong>{itemMeta.label}</strong>
+                    <small>
+                      {item === "C"
+                        ? "문법 · 포인터 · 메모리"
+                        : "객체 · STL · 알고리즘"}
+                    </small>
+                  </span>
+                  {language === item && <Check size={17} />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function LessonCatalog({
+  language,
   categories,
   lessonCount,
   completed,
 }: {
+  language: LessonLanguage;
   categories: LessonCategory[];
   lessonCount: number;
   completed: string[];
@@ -1110,9 +1281,14 @@ function LessonCatalog({
     0,
   );
   const completedSet = new Set(completed);
+  const languageLabel = lessonLanguageMeta[language].label;
+  const basePath = lessonBasePath(language);
 
   return (
-    <section className="course-browser" aria-label="C++ 강의 카테고리">
+    <section
+      className="course-browser"
+      aria-label={`${languageLabel} 강의 카테고리`}
+    >
       <aside className="course-sidebar">
         <div className="course-sidebar-title">
           <span className="course-sidebar-icon">
@@ -1164,10 +1340,10 @@ function LessonCatalog({
             <span className="course-results-kicker">
               {selectedCategory ? "SELECTED CATEGORY" : "FULL CURRICULUM"}
             </span>
-            <h2>{selectedCategory?.title ?? "전체 C++ 강의"}</h2>
+            <h2>{selectedCategory?.title ?? `전체 ${languageLabel} 강의`}</h2>
             <p>
               {selectedCategory?.summary ??
-                "원하는 주제를 골라 지금 필요한 C++ 개념부터 학습해 보세요."}
+                `원하는 주제를 골라 지금 필요한 ${languageLabel} 개념부터 학습해 보세요.`}
             </p>
           </div>
           <div className="course-results-count" aria-label="표시 중인 강의 수">
@@ -1186,7 +1362,7 @@ function LessonCatalog({
                 const isComplete = completedSet.has(lesson.slug);
                 return (
                   <Link
-                    href={"/learn/" + lesson.slug}
+                    href={`${basePath}/${lesson.slug}`}
                     className="course-lesson-card"
                     key={lesson.slug}
                   >
@@ -1735,7 +1911,7 @@ function SubmissionTable({ items }: { items: SubmissionSummary[] }) {
               <td>
                 <Badge status={s.status} />
               </td>
-              <td>C++17</td>
+              <td>{executionLanguageMeta[s.language].label}</td>
               <td>{new Date(s.createdAt).toLocaleString("ko-KR")}</td>
               <td>
                 <Link className="green-text" href={"/submissions/" + s.id}>
@@ -1774,9 +1950,13 @@ function Workspace({
   const example = version.testCases[0];
   const category = p.categories.map((item) => item.name).join(", ") || "미분류";
   const relatedLesson = p.lessons[0];
-  const draftKey = `cppstudy:draft:${user?.email}:${p.number}:cpp17`;
+  const [language, setLanguage] = useState<ExecutionLanguage>("CPP17");
+  const languageMeta = executionLanguageMeta[language];
+  const starterCode =
+    language === "C11" ? version.starterCodeC11 : version.starterCode;
+  const draftKey = `cppstudy:draft:${user?.email}:${p.number}:${language.toLowerCase()}`;
   const [code, setCode] = useState(version.starterCode),
-    [loaded, setLoaded] = useState(false),
+    [loadedDraftKey, setLoadedDraftKey] = useState<string | null>(null),
     [saveState, setSaveState] = useState(""),
     [input, setInput] = useState(example?.input ?? ""),
     [runResult, setRunResult] = useState<RunResult | null>(null),
@@ -1788,13 +1968,17 @@ function Workspace({
     [font, setFont] = useState(14),
     [split, setSplit] = useState(45),
     [reset, setReset] = useState(false);
-  const latest = submissions.find((s) => s.problem.number === p.number),
+  const loaded = loadedDraftKey === draftKey;
+  const latest = submissions.find(
+      (s) => s.problem.number === p.number && s.language === language,
+    ),
     visibleSubmission = submissionResult ?? latest,
     pending =
       visibleSubmission && processingStatuses.has(visibleSubmission.status);
   useEffect(() => {
+    setLoadedDraftKey(null);
     const existing = user ? read<string | null>(draftKey, null) : null;
-    setCode(existing ?? version.starterCode);
+    setCode(existing ?? starterCode);
     setSaveState(
       existing !== null
         ? "저장된 초안을 복원했어요"
@@ -1802,8 +1986,8 @@ function Workspace({
           ? "자동 저장 준비"
           : "로그인 후 초안 저장",
     );
-    setLoaded(true);
-  }, [draftKey, user, version.starterCode]);
+    setLoadedDraftKey(draftKey);
+  }, [draftKey, starterCode, user]);
   useEffect(() => {
     if (!loaded || !user) return;
     const stored = save(draftKey, code);
@@ -1814,7 +1998,11 @@ function Workspace({
           : "초안 저장됨"
         : "저장 실패 · 브라우저 저장 공간을 확인하세요",
     );
-  }, [code, draftKey, loaded, user]);
+  }, [code, draftKey, loaded, loadedDraftKey, user]);
+  useEffect(() => {
+    setRunResult(null);
+    setSubmissionResult(null);
+  }, [language]);
   useEffect(() => {
     if (!latest || !processingStatuses.has(latest.status)) return;
     let active = true;
@@ -1849,7 +2037,7 @@ function Workspace({
     try {
       const accepted = await createRun({
         problemVersionId: version.id,
-        language: "CPP17",
+        language,
         sourceCode: code,
         stdin: input,
       });
@@ -1871,7 +2059,7 @@ function Workspace({
       const accepted = await createSubmission(
         {
           problemVersionId: version.id,
-          language: "CPP17",
+          language,
           sourceCode: code,
         },
         crypto.randomUUID(),
@@ -1891,7 +2079,7 @@ function Workspace({
   }
   const runOutput = runResult
     ? [
-        `${runResult.status} · C++17 실행 결과`,
+        `${runResult.status} · ${languageMeta.label} 실행 결과`,
         runResult.compileOutput ? `\ncompile\n${runResult.compileOutput}` : "",
         `\nstdout\n${runResult.stdout || "없음"}`,
         `\nstderr\n${runResult.stderr || "없음"}`,
@@ -1899,7 +2087,7 @@ function Workspace({
       ].join("")
     : busy === "run"
       ? "실행 요청을 처리하고 있습니다…"
-      : "실행 버튼을 누르면 서버에서 C++17 코드를 컴파일하고 실행합니다.";
+      : `실행 버튼을 누르면 서버에서 ${languageMeta.label} 코드를 컴파일하고 실행합니다.`;
   return (
     <>
       <div className="workspace-title">
@@ -1923,10 +2111,6 @@ function Workspace({
         <Link className="button secondary" href="/me/submissions">
           제출 기록 <ArrowUpRight size={16} />
         </Link>
-      </div>
-      <div className="workspace-notice">
-        제출 코드는 격리된 실행 환경에서 네트워크 없이 컴파일됩니다. 실행 결과와
-        테스트 판정은 서버에 기록됩니다.
       </div>
       <div className="workspace-controls">
         <div className="mobile-tabs">
@@ -2010,8 +2194,21 @@ function Workspace({
         <section className="editor-pane">
           <div className="pane-heading">
             <FileCode2 size={16} />
-            <span>main.cpp</span>
-            <span className="editor-language">C++17</span>
+            <span>{languageMeta.fileName}</span>
+            <label className="editor-language-control">
+              풀이 언어
+              <select
+                aria-label="풀이 언어"
+                value={language}
+                disabled={!!busy}
+                onChange={(event) =>
+                  setLanguage(event.target.value as ExecutionLanguage)
+                }
+              >
+                <option value="C11">C11</option>
+                <option value="CPP17">C++17</option>
+              </select>
+            </label>
             <label>
               글자{" "}
               <select
@@ -2034,6 +2231,7 @@ function Workspace({
                   if (user) setSaveState("초안 저장됨");
                 }}
                 fontSize={font}
+                language={languageMeta.editorLanguage}
               />
             )}
           </div>
@@ -2156,7 +2354,7 @@ function Workspace({
             <button
               className="button primary"
               onClick={() => {
-                setCode(version.starterCode);
+                setCode(starterCode);
                 setReset(false);
                 notify("기본 코드로 초기화했습니다.");
               }}

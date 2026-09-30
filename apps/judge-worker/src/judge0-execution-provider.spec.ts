@@ -5,8 +5,10 @@ const options = {
   baseUrl: "http://judge0.test:2358",
   authHeader: "X-Judge0-Token",
   authToken: "test-secret",
-  languageId: 54,
-  compilerVersion: "C++ test compiler",
+  languages: {
+    C11: { languageId: 50, compilerVersion: "C test compiler" },
+    CPP17: { languageId: 54, compilerVersion: "C++ test compiler" },
+  },
   requestTimeoutMs: 1000,
   executionTimeoutMs: 5000,
   pollIntervalMs: 0,
@@ -43,6 +45,7 @@ describe("Judge0ExecutionProvider", () => {
     });
 
     const result = await provider.execute({
+      language: "CPP17",
       sourceCode: "int main() {}",
       stdin: "21",
       timeLimitMs: 1000,
@@ -84,10 +87,18 @@ describe("Judge0ExecutionProvider", () => {
       sleep: async () => undefined,
     });
 
-    const result = await provider.execute({ sourceCode: "broken", stdin: "" });
+    const result = await provider.execute({
+      language: "C11",
+      sourceCode: "broken",
+      stdin: "",
+    });
 
     expect(result.status).toBe("CE");
     expect(result.compileOutput).toContain("expected ';'");
+    expect(result.compilerVersion).toBe("C test compiler");
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+      language_id: 50,
+    });
   });
 });
 

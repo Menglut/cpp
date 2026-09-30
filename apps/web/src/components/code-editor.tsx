@@ -5,20 +5,24 @@ export default function CodeEditor({
   value,
   onChange,
   fontSize,
+  language,
 }: {
   value: string;
   onChange: (value: string | undefined) => void;
   fontSize: number;
+  language: "c" | "cpp";
 }) {
   return (
     <Editor
       height="420px"
-      language="cpp"
+      language={language}
       theme="vs-dark"
       value={value}
       onChange={onChange}
       loading={
-        <div className="editor-loading">C++ 에디터를 준비하고 있어요…</div>
+        <div className="editor-loading">
+          {language === "c" ? "C" : "C++"} 에디터를 준비하고 있어요…
+        </div>
       }
       options={{
         fontSize,
@@ -29,7 +33,7 @@ export default function CodeEditor({
         tabSize: 4,
         automaticLayout: true,
         bracketPairColorization: { enabled: true },
-        ariaLabel: "C++ 코드 에디터",
+        ariaLabel: `${language === "c" ? "C" : "C++"} 코드 에디터`,
         wordWrap: "on",
       }}
     />

@@ -6,6 +6,7 @@ describe("FakeExecutionProvider", () => {
 
   it("returns the supplied expected output for the development success path", async () => {
     const result = await provider.execute({
+      language: "CPP17",
       sourceCode: "int main() {}",
       stdin: "3 5",
       expectedOutput: "8",
@@ -17,6 +18,7 @@ describe("FakeExecutionProvider", () => {
 
   it("supports an explicit wrong-answer scenario marker", async () => {
     const result = await provider.execute({
+      language: "CPP17",
       sourceCode: "// FAKE:WA",
       stdin: "",
       expectedOutput: "expected",
@@ -27,6 +29,7 @@ describe("FakeExecutionProvider", () => {
 
   it("supports an explicit compiler-error scenario marker", async () => {
     const result = await provider.execute({
+      language: "CPP17",
       sourceCode: "// FAKE:CE",
       stdin: "",
     });

@@ -64,7 +64,7 @@ npm.cmd run dev:api
 ## 모의 기능과 구현 경계
 
 - 회원가입·로그인·로그아웃은 NestJS API와 PostgreSQL 세션 저장소에 연결되어 있습니다. 비밀번호는 Argon2id로 해시하고 브라우저에는 HttpOnly 세션 쿠키만 저장합니다.
-- 실행 Worker는 개발용 Fake Provider와 실제 Judge0 CE Provider를 환경변수로 선택할 수 있습니다. Judge0 모드에서는 비동기 제출·폴링으로 실제 C++17 코드를 컴파일하고 실행합니다.
+- 실행 Worker는 개발용 Fake Provider와 실제 Judge0 CE Provider를 환경변수로 선택할 수 있습니다. Judge0 모드에서는 비동기 제출·폴링으로 C11 또는 C++17 코드를 선택한 컴파일러에서 실행합니다.
 - 로컬 개발 환경에서 원격 Judge0를 사용할 때는 2358 포트를 공개하지 않고 SSH 터널을 사용합니다. 설정 방법은 `docs/judge0-provider.md`에 기록되어 있습니다.
 - 관리자 권한은 서버 세션의 role로 판정합니다. 관리자 편집 데이터와 숨김 테스트는 PostgreSQL의 관리자 API로만 조회·저장합니다.
 - 코드 초안 키는 계정·문제·언어를 포함하며 현재 브라우저에만 저장됩니다. 로그아웃하면 해당 계정 초안을 지웁니다.

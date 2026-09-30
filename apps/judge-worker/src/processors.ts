@@ -57,6 +57,7 @@ export function createProcessors(
           (test) => test.input === run.stdin,
         );
         const result = await provider.execute({
+          language: run.language as "C11" | "CPP17",
           sourceCode: run.sourceCode,
           stdin: run.stdin,
           expectedOutput: example?.expectedOutput,
@@ -109,6 +110,7 @@ export function createProcessors(
         });
         for (const test of submission.problemVersion.testCases) {
           const result = await provider.execute({
+            language: submission.language as "C11" | "CPP17",
             sourceCode: submission.sourceCode,
             stdin: test.input,
             expectedOutput: test.expectedOutput,
@@ -198,6 +200,7 @@ export function createProcessors(
         });
         for (const test of version.testCases) {
           const result = await provider.execute({
+            language: "CPP17",
             sourceCode: version.referenceSource,
             stdin: test.input,
             expectedOutput: test.expectedOutput,

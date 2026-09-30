@@ -1,4 +1,5 @@
 import type {
+  ExecutionLanguage,
   ExecutionProvider,
   ProviderRequest,
   ProviderResult,
@@ -26,8 +27,10 @@ export type Judge0ProviderOptions = {
   baseUrl: string;
   authHeader: string;
   authToken: string;
-  languageId: number;
-  compilerVersion: string;
+  languages: Record<
+    ExecutionLanguage,
+    { languageId: number; compilerVersion: string }
+  >;
   requestTimeoutMs: number;
   executionTimeoutMs: number;
   pollIntervalMs: number;
@@ -97,6 +100,7 @@ export class Judge0ExecutionProvider implements ExecutionProvider {
   }
 
   async execute(request: ProviderRequest): Promise<ProviderResult> {
+    const runtime = this.options.languages[request.language];
     const submissionResponse = await this.request(
       "/submissions?base64_encoded=true&wait=false",
       {
@@ -105,7 +109,7 @@ export class Judge0ExecutionProvider implements ExecutionProvider {
         body: JSON.stringify({
           source_code: Buffer.from(request.sourceCode, "utf8").toString("base64"),
           stdin: Buffer.from(request.stdin, "utf8").toString("base64"),
-          language_id: this.options.languageId,
+          language_id: runtime.languageId,
           cpu_time_limit: Math.max((request.timeLimitMs ?? 1000) / 1000, 0.1),
           wall_time_limit: Math.max((request.timeLimitMs ?? 1000) / 500 + 1, 2),
           memory_limit: request.memoryLimitKiB ?? 131072,
@@ -129,7 +133,9 @@ export class Judge0ExecutionProvider implements ExecutionProvider {
         throw new Error(`Judge0 polling failed with HTTP ${resultResponse.status}`);
       }
       const result = (await resultResponse.json()) as Judge0Submission;
-      if (terminalStatusIds.has(result.status.id)) return this.toProviderResult(result);
+      if (terminalStatusIds.has(result.status.id)) {
+        return this.toProviderResult(result, runtime.compilerVersion);
+      }
       await this.sleep(this.options.pollIntervalMs);
     }
 
@@ -146,7 +152,10 @@ export class Judge0ExecutionProvider implements ExecutionProvider {
     });
   }
 
-  private toProviderResult(result: Judge0Submission): ProviderResult {
+  private toProviderResult(
+    result: Judge0Submission,
+    compilerVersion: string,
+  ): ProviderResult {
     const status = mapStatus(result.status);
     const message = decodeBase64(result.message);
     return {
@@ -159,7 +168,7 @@ export class Judge0ExecutionProvider implements ExecutionProvider {
       diagnostic: message
         ? `Judge0 ${result.status.description}: ${message}`
         : `Judge0 ${result.status.description}`,
-      compilerVersion: this.options.compilerVersion,
+      compilerVersion,
     };
   }
 }
